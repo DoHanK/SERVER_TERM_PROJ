@@ -4,18 +4,226 @@
 #include "CELL.h"
 
 void process_packet(int c_id, char* packet);
+bool can_see(const SESSION& a, const SESSION& b);
+int get_new_client_id(std::array<SESSION, MAX_USER>& clients);
+void disconnect(int c_id, std::array<SESSION, MAX_USER>& clients);
+int GetSectorIndex(const int& x, const int& y);
+
 
 std::array<SESSION, MAX_USER> clients;
+
+std::queue<std::pair<int, std::pair<int, char*>>> QueryQueue; // index, OP ,id
+std::mutex QueryLock;
+SQLHSTMT hstmt = 0;
+enum QUERRY_TYPE { OP_GETINFO, OP_SAVEINFO };
+
+
+
 
 SOCKET g_s_socket, g_c_socket;
 OVER_EXP g_a_over;
  CELL* pSector = nullptr;
  CELL* pSectorRef = nullptr;
 
-
 int SECTOR_NUM::nSectorX = 0;
 int SECTOR_NUM::nSectorY = 0;
 
+void ConnectDataBase() {
+	SQLHENV henv;
+	SQLHDBC hdbc;
+
+	SQLRETURN retcode;
+	SQLSCHAR UserID[NAME_SIZE];
+	SQLINTEGER UserVisual, UserMaxHp, UserHp, UserExp, UserAttack, UserLevel, UserPosX, UserPosY;
+	SQLLEN cbVISUAL, cbMAXHP = 0, cbHP = 0, cbEXP = 0, cbATTACK = 0, cbLEVEL = 0, cbID = 0, cbPosX = 0, cbPosY = 0;
+
+	setlocale(LC_ALL, "korean");
+	// std::wcout.imbue(std::locale("korean"));
+
+	 // Allocate environment handle  
+	retcode = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &henv);
+
+	// Set the ODBC version environment attribute  
+	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
+		retcode = SQLSetEnvAttr(henv, SQL_ATTR_ODBC_VERSION, (SQLPOINTER*)SQL_OV_ODBC3, 0);
+
+
+		// Allocate connection handle  
+		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
+			retcode = SQLAllocHandle(SQL_HANDLE_DBC, henv, &hdbc);
+
+			// Set login timeout to 5 seconds  
+			if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
+				SQLSetConnectAttr(hdbc, SQL_LOGIN_TIMEOUT, (SQLPOINTER)5, 0);
+
+				// Connect to data source  
+				retcode = SQLConnect(hdbc, (SQLWCHAR*)L"TermProject", SQL_NTS, (SQLWCHAR*)NULL, 0, NULL, 0);
+				retcode = SQLAllocHandle(SQL_HANDLE_STMT, hdbc, &hstmt);
+				// Allocate statement handle  
+				if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
+					while (true) {
+						//std::cout << "루프도는중" << std::endl;
+						std::pair<int, std::pair<int, std::string>> GetOpNId;
+
+						QueryLock.lock();
+						if (0 < QueryQueue.size()) {
+							GetOpNId = QueryQueue.front();
+							QueryQueue.pop();
+							QueryLock.unlock();
+
+						}
+						else {
+							QueryLock.unlock();
+							continue;
+						}
+
+						if (GetOpNId.second.first == OP_GETINFO) {
+							std::wstring cmd = L"EXEC GetUserInfo ";
+							std::wstring id;
+							id.assign(GetOpNId.second.second.begin(), GetOpNId.second.second.end());
+							cmd += id;
+
+							retcode = SQLExecDirect(hstmt, (SQLWCHAR*)cmd.c_str(), SQL_NTS);
+
+							if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
+
+								// Bind columns 1, 2, and 3  
+								retcode = SQLBindCol(hstmt, 1, SQL_C_CHAR, &UserID, 20, &cbID);
+								retcode = SQLBindCol(hstmt, 2, SQL_C_LONG, &UserVisual, 4, &cbVISUAL);
+								retcode = SQLBindCol(hstmt, 3, SQL_C_LONG, &UserMaxHp, 4, &cbMAXHP);
+								retcode = SQLBindCol(hstmt, 4, SQL_C_LONG, &UserHp, 4, &cbHP);
+								retcode = SQLBindCol(hstmt, 5, SQL_C_LONG, &UserExp, 4, &cbEXP);
+								retcode = SQLBindCol(hstmt, 6, SQL_C_LONG, &UserAttack, 4, &cbATTACK);
+								retcode = SQLBindCol(hstmt, 7, SQL_C_LONG, &UserLevel, 4, &cbLEVEL);
+								retcode = SQLBindCol(hstmt, 8, SQL_C_LONG, &UserPosX, 4, &cbPosX);
+								retcode = SQLBindCol(hstmt, 9, SQL_C_LONG, &UserPosY, 4, &cbPosY);
+
+								// Fetch and print each row of data. On an error, display a message and exit.  
+								for (int i = 0; ; i++) {
+									retcode = SQLFetch(hstmt);
+									/*     if (retcode == SQL_ERROR || retcode == SQL_SUCCESS_WITH_INFO)
+											 HandleDiagnosticRecord(hstmt, SQL_HANDLE_STMT, retcode);*/
+									if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+									{
+
+								
+
+
+										for (int i = 0; i < NAME_SIZE; ++i) {
+											if (UserID[i] == '\0') break;
+											clients[GetOpNId.first].m_userid += UserID[i];
+										} 
+										clients[GetOpNId.first].m_visual = UserVisual;
+										clients[GetOpNId.first].m_max_hp = UserMaxHp;
+										clients[GetOpNId.first].m_hp = UserHp;
+										clients[GetOpNId.first].m_exp = UserExp;
+										clients[GetOpNId.first].m_attack_damge = UserAttack;
+										clients[GetOpNId.first].m_level = UserLevel;
+										clients[GetOpNId.first].m_x = UserPosX;
+										clients[GetOpNId.first].m_y = UserPosY;
+										int sectornum = GetSectorIndex(clients[GetOpNId.first].m_x, clients[GetOpNId.first].m_y);
+
+										pSector[sectornum].AddPlayer(GetOpNId.first);
+
+										clients[GetOpNId.first].Send_Login_Info_Packet();
+										{
+											std::lock_guard<std::mutex> ll{ clients[GetOpNId.first].m_socket_lock };
+											clients[GetOpNId.first].m_state = ST_INGAME;
+										}
+										for (auto& pl : clients) {
+											{
+												std::lock_guard<std::mutex> ll(pl.m_socket_lock);
+												if (ST_INGAME != pl.m_state) continue;
+											}
+											if (pl.m_id == GetOpNId.first) continue;
+											if (false == can_see(pl, clients[GetOpNId.first])) continue;
+
+											/*							pl.send_add_player_packet(GetOpNId.first);
+																		clients[GetOpNId.first].send_add_player_packet(pl._id);*/
+										}
+
+									}
+									else if (retcode == SQL_NO_DATA && i == 0) {
+										//clients[GetOpNId.first].send_login_fail_packet();
+										disconnect(GetOpNId.first, clients);
+
+									}
+									else
+										break;
+								}
+							}
+							else {
+								//실패 패킷
+
+
+							}
+
+
+							retcode = SQLAllocHandle(SQL_HANDLE_STMT, hdbc, &hstmt);
+						}
+
+
+						else if (GetOpNId.second.first == OP_SAVEINFO) {
+
+							std::wstring cmd = L"EXEC SavePlayerInfo ";
+							std::wstring id;
+							id.assign(GetOpNId.second.second.begin(), GetOpNId.second.second.end());
+
+							cmd += id;
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_x);
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_y);
+							retcode = SQLExecDirect(hstmt, (SQLWCHAR*)cmd.c_str(), SQL_NTS);
+
+
+						}
+
+
+
+						//if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
+
+						//	// Bind columns 1, 2, and 3  
+						//	retcode = SQLBindCol(hstmt, 1, SQL_C_LONG, &UserID, 10, &cbID);
+						//	retcode = SQLBindCol(hstmt, 2, SQL_C_LONG, &UserPosX, 10, &cbPosX);
+						//	retcode = SQLBindCol(hstmt, 3, SQL_C_LONG, &UserPosY, 10, &cbPosY);
+
+						//	// Fetch and print each row of data. On an error, display a message and exit.  
+						//	for (int i = 0; ; i++) {
+						//		retcode = SQLFetch(hstmt);
+						//		/*     if (retcode == SQL_ERROR || retcode == SQL_SUCCESS_WITH_INFO)
+						//				 HandleDiagnosticRecord(hstmt, SQL_HANDLE_STMT, retcode);*/
+						//		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+						//		{
+
+						//		}
+						//		else
+						//			break;
+						//	}
+						//}
+						//else {
+
+
+						//	//HandleDiagnosticRecord(hstmt, SQL_HANDLE_STMT, retcode);
+						//}
+
+					}
+					// Process data  
+					if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
+						SQLCancel(hstmt);
+						SQLFreeHandle(SQL_HANDLE_STMT, hstmt);
+					}
+
+					SQLDisconnect(hdbc);
+				}
+
+				SQLFreeHandle(SQL_HANDLE_DBC, hdbc);
+			}
+		}
+		SQLFreeHandle(SQL_HANDLE_ENV, henv);
+	}
+
+}
 
 
 int GetSectorIndex(const int& x, const int& y) {
@@ -182,9 +390,9 @@ void process_packet(int c_id, char* packet)
 	switch (packet[2]) {
 	case CS_LOGIN: {
 		CS_LOGIN_PACKET* p = reinterpret_cast<CS_LOGIN_PACKET*>(packet);
-		//QueryLock.lock();
-		//QueryQueue.push({ c_id, { OP_GETINFO ,p->userid } });
-		//QueryLock.unlock();
+		QueryLock.lock();
+		QueryQueue.push({ c_id, { OP_GETINFO ,p->userid } });
+		QueryLock.unlock();
 		break;
 	}
 	case CS_MOVE: {
@@ -269,6 +477,38 @@ void process_packet(int c_id, char* packet)
 
 int main() {
 
+	//SECTOR Init
+	float  nfSectorX = float(W_WIDTH) / float(SECTOR_SIZE);
+	float  nfSectorY = float(W_HEIGHT) / float(SECTOR_SIZE);
+	SECTOR_NUM::nSectorX = ceil(nfSectorX);
+	SECTOR_NUM::nSectorY = ceil(nfSectorY);
+	
+	pSector = new CELL[SECTOR_NUM::nSectorX * SECTOR_NUM::nSectorY];
+	pSectorRef = new CELL[SECTOR_NUM::nSectorX * SECTOR_NUM::nSectorY];
+	//  1 2 3 4 5 .. 순의 셀로 채택
+	//  6 7 8 9 10..
+	// 
+
+	for (int y = 0; y < SECTOR_NUM::nSectorY; ++y) {
+		for (int x = 0; x < SECTOR_NUM::nSectorX; ++x) {
+
+			pSector[y * SECTOR_NUM::nSectorX + x].top = (y)*SECTOR_SIZE;
+			pSector[y * SECTOR_NUM::nSectorX + x].bottom = (y + 1) * SECTOR_SIZE;
+
+			pSector[y * SECTOR_NUM::nSectorX + x].left = (x)*SECTOR_SIZE;
+			pSector[y * SECTOR_NUM::nSectorX + x].right = (x + 1) * SECTOR_SIZE;
+
+			pSectorRef[y * SECTOR_NUM::nSectorX + x].centerY = ((y)*SECTOR_SIZE + (y + 1) * SECTOR_SIZE) / 2;
+			pSectorRef[y * SECTOR_NUM::nSectorX + x].centerX = ((x)*SECTOR_SIZE + (x + 1) * SECTOR_SIZE) / 2;
+			if (x + y * SECTOR_NUM::nSectorX == 79) {
+				break;
+			}
+		}
+	}
+
+
+
+
 
 	HANDLE h_iocp;
 
@@ -295,6 +535,9 @@ int main() {
 	for (int i = 0; i < num_threads; ++i)
 		worker_threads.emplace_back(worker_thread, h_iocp);
 
+	std::thread DataBase_thread{ ConnectDataBase };
+
+	DataBase_thread.join();
 
 	for (auto& th : worker_threads)
 		th.join();

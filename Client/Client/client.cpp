@@ -405,7 +405,6 @@ MAPDrawer MapManger;
 
 class CHARECTOR :public OBJECT {
 public:
-	int m_job=0;
 	int m_state = IDLE;
 	int m_KeyFrame=0;
 	float m_dir = -1.0f;
@@ -413,8 +412,18 @@ public:
 	float m_sizey = 0.2f;
 	float m_animationTime = 0.05f;
 	float m_ElapsedanimationTime = 0.0f;
-
 	sf::Sprite animation[CHARJOBEND][CHARSTATEEND][animationframe];
+
+public:
+	//ingameInfo
+	int m_job = 0;
+	int m_max_hp = 0;
+	int m_hp = 0;
+	int m_exp = 0;
+	int m_attack = 0;
+	int m_level = 0;
+	
+
 	CHARECTOR() {};
 	CHARECTOR(int x, int y, int x2, int y2, int job) {
 		m_showing = false;
@@ -590,7 +599,15 @@ void ProcessPacket(char* ptr)
 		SC_LOGIN_INFO_PACKET * packet = reinterpret_cast<SC_LOGIN_INFO_PACKET*>(ptr);
 		g_myid = packet->id;
 		avatar.id = g_myid;
+		avatar.m_job = packet->visual;
+		avatar.m_max_hp = packet->max_hp;
+		avatar.m_hp = packet->hp;
+		avatar.m_exp = packet->exp;
+		avatar.m_attack = packet->attack_damge;
+		avatar.m_level = packet->level;			
 		avatar.move(packet->x, packet->y);
+
+
 		g_left_x = packet->x - SCREEN_WIDTH / 2;
 		g_top_y = packet->y - SCREEN_HEIGHT / 2;
 		avatar.show();
@@ -745,9 +762,11 @@ void send_packet(void *packet)
 int main()
 {
 
-	int id = -1;
-	std::cout << "아이디를 입력해주세요" << std::endl;
-	std::cin >> id;
+	std::string id = "";
+	do {
+		std::cout << "아이디를 입력해주세요" << std::endl;
+		std::cin >> id;
+	} while (id.size() > 20);
 
 	wcout.imbue(locale("korean"));
 	sf::Socket::Status status = s_socket.connect("127.0.0.1", PORT_NUM);
@@ -763,11 +782,11 @@ int main()
 	client_initialize();
 	CS_LOGIN_PACKET p;
 	p.size = sizeof(p);
-	p.userid = id;
+	memcpy(p.userid, id.c_str(), NAME_SIZE);
 	p.type = CS_LOGIN;
 
-	string player_name{ "P" };
-	player_name += to_string(id);
+   	string player_name{ "ID:" };
+	player_name += id;
 		
 	strcpy_s(p.name, player_name.c_str());
 	send_packet(&p);

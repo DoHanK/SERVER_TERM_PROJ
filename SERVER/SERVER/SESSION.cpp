@@ -19,12 +19,21 @@ void SESSION::Send(void* packet)
 void SESSION::Send_Login_Info_Packet()
 {
 	SC_LOGIN_INFO_PACKET p;
-	p.id = m_id;
-	p.userid = m_userid;
 	p.size = sizeof(SC_LOGIN_INFO_PACKET);
 	p.type = SC_LOGIN_INFO;
+	p.id = m_id;
+	memcpy(p.userid, m_userid.c_str(), NAME_SIZE);
+	p.visual = m_visual;
+	p.max_hp = m_max_hp;
+	p.hp = m_hp;
+	p.exp = m_exp;
+	p.attack_damge = m_attack_damge;
+	p.level = m_level;
 	p.x = m_x;
 	p.y = m_y;
+
+
+	
 	Send(&p);
 }
 

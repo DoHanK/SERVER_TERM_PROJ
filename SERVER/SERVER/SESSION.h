@@ -29,13 +29,22 @@ public:		//For Data Communication;
 
 
 //ForApplication 
-
-	int							m_userid;
-	short						m_x, m_y;
 	char						m_username[NAME_SIZE];
 	std::unordered_set<int>		m_view_list;
 	std::mutex					m_view_lock;
 	int							m_last_move_time;
+public:			//userinfo
+	std::string					m_userid;
+	int							m_visual;
+	short						m_x, m_y;
+	int							m_hp;
+	int							m_max_hp;
+	int							m_attack_damge;
+	int							m_exp;
+	int							m_level;
+
+
+
 public: 
 	// func for Data Communication
 

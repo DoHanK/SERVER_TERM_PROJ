@@ -50,7 +50,7 @@ constexpr char SC_STAT_CHANGE = 8;
 struct CS_LOGIN_PACKET {
 	unsigned short size;
 	char	type;
-	int		userid;
+	char	userid[NAME_SIZE];
 	char	name[NAME_SIZE];
 };
 
@@ -80,11 +80,12 @@ struct CS_LOGOUT_PACKET {
 struct SC_LOGIN_INFO_PACKET {
 	unsigned short size;
 	char	type;
-	int		userid;
+	char	userid[NAME_SIZE];
 	int		visual;				// 종족, 성별등을 구분할 때 사용
 	int		id;
 	int		hp;
 	int		max_hp;
+	int		attack_damge;
 	int		exp;
 	int		level;
 	short	x, y;
