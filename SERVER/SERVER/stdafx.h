@@ -10,12 +10,10 @@
 #include <queue>
 #include <string>
 #include "protocol.h"
-#include "protocol.h"
 #define UNICODE  
 #include <sqlext.h>  
 
-#define NAME_LEN 50  
-#define PHONE_LEN 60
+
 
 #pragma comment(lib, "WS2_32.lib")
 #pragma comment(lib, "MSWSock.lib")
@@ -27,7 +25,21 @@
 #include <locale.h>
 
 
-//program code
-#include "SESSION.h"
-#include ""
+
+
+
+
+enum S_STATE { ST_FREE, ST_ALLOC, ST_INGAME };
+//IOCP ¿¬»ê
+enum COMP_TYPE { OP_ACCEPT, OP_RECV, OP_SEND };
+constexpr int VIEW_RANGE = 5;
+constexpr int SECTOR_SIZE = 5;
+
+class SECTOR_NUM {
+public:
+	static int nSectorX;
+	static int nSectorY;
+};
+
+
 
