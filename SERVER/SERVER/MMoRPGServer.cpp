@@ -107,7 +107,7 @@ void ConnectDataBase() {
 									{
 
 								
-
+										clients[GetOpNId.first].m_userid = "";
 
 										for (int i = 0; i < NAME_SIZE; ++i) {
 											if (UserID[i] == '\0' || UserID[i] == ' ') break;

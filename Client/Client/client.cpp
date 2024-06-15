@@ -196,14 +196,14 @@ public:
 	void set_chat(const char str[]) {
 		m_chat.setFont(g_font);
 		m_chat.setString(str);
-		m_chat.setFillColor(sf::Color(255, 255, 255));
+		m_chat.setFillColor(sf::Color(0, 0, 0));
 		m_chat.setStyle(sf::Text::Bold);
 		m_mess_end_time = chrono::system_clock::now() + chrono::seconds(3);
 	}
 	void set_chat(const WCHAR str[]) {
 		m_chat.setFont(g_fhangle);
 		m_chat.setString(str);
-		m_chat.setFillColor(sf::Color(255, 255, 255));
+		m_chat.setFillColor(sf::Color(0, 0, 0));
 		m_chat.setStyle(sf::Text::Bold);
 		m_mess_end_time = chrono::system_clock::now() + chrono::seconds(3);
 	}
@@ -522,7 +522,28 @@ public:
 			g_window->draw(m_name);
 		
 			if (m_mess_end_time > chrono::system_clock::now()) {
-				m_chat.setPosition(rx - size.width / 2, ry - 170);
+				size = m_chat.getGlobalBounds();
+				UIsprite[chat].setTextureRect(sf::IntRect(0, 0, 512, 512));
+				int length = m_chat.getString().getSize();
+				if(length < 3) {
+					UIsprite[chat].setScale(0.3f, 0.2);
+				}
+				else if (3<=length &&length <9) {
+					UIsprite[chat].setScale(0.6f, 0.2);
+				}
+				else if (9 <= length && length < 15) {
+					UIsprite[chat].setScale(0.9f, 0.2);
+				}
+				else if (15 <= length && length < 21) {
+					UIsprite[chat].setScale(1.2f, 0.2);
+				}
+				else  {
+					UIsprite[chat].setScale(1.5f, 0.2);
+				}
+				
+				UIsprite[chat].setPosition(rx + 10 - size.width / 2, ry - 170);
+				m_chat.setPosition(rx + 32 - size.width / 2, ry - 140);
+				g_window->draw(UIsprite[chat]);
 				g_window->draw(m_chat);
 			}
 		//DrawUI
@@ -726,8 +747,8 @@ void ProcessPacket(char* ptr)
 		}
 		else {
 			players[other_id].set_chat(my_packet->mess);
-			wstring temp(my_packet->mess);
-			std::cout << "메세지 받음" << std::endl;
+		
+			
 		}
 
 		break;
@@ -887,9 +908,6 @@ int main()
 			{
 				
 				WCHAR temp = event.text.unicode;
-	
-				
-
 				if (UImanger->bChattingmode) {
 					if (temp == 8 && !UImanger->chatcontent.empty())
 						UImanger->chatcontent.pop_back();
@@ -897,23 +915,24 @@ int main()
 						if (UImanger->chatcontent.size()<1) {
 							UImanger->bChattingmode = false;
 						}
-						UImanger->chatcontent += L"\0";
-						CS_CHAT_PACKET p;
-						memset(&p, 0, sizeof(CS_CHAT_PACKET));
-						p.type = CS_CHAT;
-						p.size = sizeof(CS_CHAT_PACKET);
-						int i = 0;
-						for (auto chr : UImanger->chatcontent) {
-							p.mess[i++] = chr;
-							
-						}
-						p.mess[i] = '\0';
-						std::wcout << UImanger->chatcontent << std::endl;
-						avatar.set_chat(p.mess);
+						else {
+							UImanger->chatcontent += L"\0";
+							CS_CHAT_PACKET p;
+							memset(&p, 0, sizeof(CS_CHAT_PACKET));
+							p.type = CS_CHAT;
+							p.size = sizeof(CS_CHAT_PACKET);
+							int i = 0;
+							for (auto chr : UImanger->chatcontent) {
+								p.mess[i++] = chr;
 
-						send_packet(&p);
-						UImanger->chatcontent = L"";
-						
+							}
+							p.mess[i] = '\0';
+							std::wcout << UImanger->chatcontent << std::endl;
+							avatar.set_chat(p.mess);
+
+							send_packet(&p);
+							UImanger->chatcontent = L"";
+						}
 					}
 					else if(UImanger->chatcontent.length()<CHAT_SIZE){
 						UImanger->chatcontent += temp;
@@ -950,8 +969,11 @@ int main()
 					direction = 1;
 					break;
 				case sf::Keyboard::LControl:
+					CS_MOVE_PACKET p;
+
 					avatar.m_state = ATTACK;
 					break;
+
 				case sf::Keyboard::Escape:
 					window.close();
 					break;
