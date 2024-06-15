@@ -1,7 +1,7 @@
 constexpr int PORT_NUM = 4000;
 constexpr int NAME_SIZE = 20;
-constexpr int CHAT_SIZE = 300;
-constexpr int BUF_SIZE = 200;
+constexpr int CHAT_SIZE = 100;
+constexpr int BUF_SIZE = 600;
 
 constexpr int MAX_USER = 10000;
 constexpr int MAX_NPC = 200000;
@@ -29,7 +29,13 @@ enum CHARJOB {
 	CAT,
 	CHARJOBEND
 };
+enum UI {
+	grayhp,
+	redhp,
+	chat,
+	UIEND
 
+};
 // Packet ID
 constexpr char CS_LOGIN = 0;
 constexpr char CS_MOVE = 1;
@@ -64,7 +70,7 @@ struct CS_MOVE_PACKET {
 struct CS_CHAT_PACKET {
 	unsigned short size;			// 크기가 가변이다, mess가 작으면 size도 줄이자.
 	char	type;
-	char	mess[CHAT_SIZE];
+	WCHAR	mess[CHAT_SIZE];
 };
 
 struct CS_TELEPORT_PACKET {			// 랜덤으로 텔레포트 하는 패킷, 동접 테스트에 필요
@@ -96,6 +102,11 @@ struct SC_ADD_OBJECT_PACKET {
 	char	type;
 	int		id;
 	int		visual;				// 어떻게 생긴 OBJECT인가를 지시
+	int		dir;
+	int		state; //적이 가만히잇을때 추가됐는지 아니면 움직이다가 추가됏는지 확인용
+	int		hp;
+	int		max_hp;
+	int		level;
 	short	x, y;
 	char	name[NAME_SIZE];
 };
@@ -110,6 +121,7 @@ struct SC_MOVE_OBJECT_PACKET {
 	unsigned short size;
 	char	type;
 	int		id;
+	int		dir;
 	short	x, y;
 	unsigned int move_time;
 };
@@ -118,7 +130,7 @@ struct SC_CHAT_PACKET {
 	unsigned short size;
 	char	type;
 	int		id;
-	char	mess[CHAT_SIZE];
+	WCHAR	mess[CHAT_SIZE];
 };
 
 struct SC_LOGIN_FAIL_PACKET {

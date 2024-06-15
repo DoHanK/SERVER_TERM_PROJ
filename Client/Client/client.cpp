@@ -6,6 +6,10 @@
 #include <chrono>
 #include <fstream>
 #include <set>
+#include <thread>
+#include <functional>
+#include <codecvt>
+#include "UImanager.h"
 using namespace std;
 
 #include "../../SERVER/SERVER/protocol.h"
@@ -20,6 +24,7 @@ chrono::system_clock::time_point nowtime;
 class RESOURCEManager {
 public:
 	sf::Texture* animation[CHARJOBEND][CHARSTATEEND][animationframe];
+	sf::Texture* UIImg[UIEND];
 
 	RESOURCEManager(){}
 
@@ -39,11 +44,24 @@ public:
 					addr += ").png";
 
 					animation[i][j][k] = new sf::Texture;
+			
 					animation[i][j][k]->loadFromFile(addr);
 				}
 			}
 		}
 	
+	}
+
+	void LoadUIImg() {
+		
+		for (int i = 0; i < UIEND; ++i) {
+			string addr = "Resource/UI/";
+			addr += getstringUI(i);
+			addr += ".png";
+			UIImg[i] = new sf::Texture;
+			UIImg[i]->loadFromFile(addr);
+		}
+
 	}
 
 	string GetState(int state) {
@@ -64,6 +82,19 @@ public:
 		
 		return "NONE";
 	}
+
+	string getstringUI(int UIKind) {
+		if (UIKind == grayhp) return "grayhp";
+		if (UIKind == redhp) return "redhp";
+		if (UIKind == chat) return "chat";
+	}
+
+	std::pair<float, float> getUISize(int UIKind) { // width, height
+		if (UIKind == grayhp) return {128,15 };
+		if (UIKind == redhp) return { 128,15 };
+		if (UIKind == chat) return { 100,20};
+	}
+
 };
 
 
@@ -80,7 +111,9 @@ int g_myid;
 class OBJECT;
 
 sf::RenderWindow* g_window;
+UIManager* UImanger;
 sf::Font g_font;
+sf::Font g_fhangle;
 #define  mapcount 14
 
 class OBJECT {
@@ -167,7 +200,13 @@ public:
 		m_chat.setStyle(sf::Text::Bold);
 		m_mess_end_time = chrono::system_clock::now() + chrono::seconds(3);
 	}
-
+	void set_chat(const WCHAR str[]) {
+		m_chat.setFont(g_fhangle);
+		m_chat.setString(str);
+		m_chat.setFillColor(sf::Color(255, 255, 255));
+		m_chat.setStyle(sf::Text::Bold);
+		m_mess_end_time = chrono::system_clock::now() + chrono::seconds(3);
+	}
 
 };
 
@@ -389,30 +428,24 @@ public:
 				}
 			}
 
-
-
 	}
 
 };
 
-
 RESOURCEManager ResourceManager;
 MAPDrawer MapManger;
-
-
-
-
 
 class CHARECTOR :public OBJECT {
 public:
 	int m_state = IDLE;
 	int m_KeyFrame=0;
-	float m_dir = -1.0f;
+	float m_dir = 1.0f;
 	float m_sizex = 0.2f;
 	float m_sizey = 0.2f;
 	float m_animationTime = 0.05f;
 	float m_ElapsedanimationTime = 0.0f;
 	sf::Sprite animation[CHARJOBEND][CHARSTATEEND][animationframe];
+	sf::Sprite UIsprite[UIEND];
 
 public:
 	//ingameInfo
@@ -440,7 +473,7 @@ public:
 				for (int k = 0; k < 10; ++k) {
 					animation[i][j][k].setTexture(*ResourceManager.animation[i][j][k]);
 					if(m_job == NINJA)
-						animation[i][j][k].setTextureRect(sf::IntRect(0, 0, 600, 440));
+						animation[i][j][k].setTextureRect(sf::IntRect(0, 0, 64, 64));
 					else {
 						animation[i][j][k].setTextureRect(sf::IntRect(0, 0, 1024, 1024));
 					}
@@ -448,6 +481,13 @@ public:
 					animation[i][j][k].setScale(0.2f, 0.2f);
 				}
 			}
+		}
+
+		for (int i = 0; i < UIEND; ++i) {
+			UIsprite[i].setTexture(*ResourceManager.UIImg[i]);
+			std::pair<int, int> rectsize = ResourceManager.getUISize(i);
+			UIsprite[i].setTextureRect(sf::IntRect(0, 0, rectsize.first, rectsize.second));
+
 		}
 
 	}
@@ -476,15 +516,25 @@ public:
 
 
 		auto size = m_name.getGlobalBounds();
-		if (m_mess_end_time < chrono::system_clock::now()) {
 
-			m_name.setPosition(rx + 32 - size.width / 2, ry - 10 + GetPosOffsetY(m_dir));
+
+			m_name.setPosition(rx + 32 - size.width / 2, ry -40 + GetPosOffsetY(m_dir));
 			g_window->draw(m_name);
-		}
-		else {
-			m_chat.setPosition(rx + 32 - size.width / 2, ry - 10);
-			g_window->draw(m_chat);
-		}
+		
+			if (m_mess_end_time > chrono::system_clock::now()) {
+				m_chat.setPosition(rx - size.width / 2, ry - 170);
+				g_window->draw(m_chat);
+			}
+		//DrawUI
+		auto uisize = ResourceManager.getUISize(grayhp);
+			UIsprite[grayhp].setPosition(rx -30 , ry  + GetPosOffsetY(m_dir));
+			g_window->draw(UIsprite[grayhp]);
+		//체력 받아오기
+			uisize = ResourceManager.getUISize(redhp);
+			float width  = uisize.first* ((float)m_hp / (float)m_max_hp);
+			UIsprite[redhp].setTextureRect(sf::IntRect(0, 0,width, uisize.second));
+			UIsprite[redhp].setPosition(rx - 30, ry + GetPosOffsetY(m_dir));
+			g_window->draw(UIsprite[redhp]);
 	}
 
 
@@ -551,33 +601,25 @@ public:
 
 };
 
-
-
-
-
 CHARECTOR avatar;
 unordered_map <int, CHARECTOR> players;
 
 
+void client_initialize(){
 
-sf::Texture* board;
-sf::Texture* pieces;
-
-
-
-void client_initialize()
-{
-	board = new sf::Texture;
-	pieces = new sf::Texture;
-	board->loadFromFile("chessmap.bmp");
-	pieces->loadFromFile("Resource/ROBOT/idle (1).png");
 	if (false == g_font.loadFromFile("cour.ttf")) {
 		cout << "Font Loading Error!\n";
 		exit(-1);
 	}
+	if (false == g_fhangle.loadFromFile("hangle.ttf")) {
+		cout << "Font Loading Error!\n";
+		exit(-1);
+	}
+
 	MapManger.Load_Map_info();
 	ResourceManager.LoadCharImg();
-	avatar = CHARECTOR{0, 0, 0, 0, WOMANZOMBIE };
+	ResourceManager.LoadUIImg();
+	avatar = CHARECTOR{0, 0, 0, 0, 0 };
 	
 	avatar.move(4, 4);
 }
@@ -585,8 +627,7 @@ void client_initialize()
 void client_finish()
 {
 	players.clear();
-	delete board;
-	delete pieces;
+
 }
 
 void ProcessPacket(char* ptr)
@@ -626,8 +667,15 @@ void ProcessPacket(char* ptr)
 		else if (id < MAX_USER) {
 			players[id] = CHARECTOR{  0, 0, 64, 64,0 };
 			players[id].id = id;
+			players[id].m_job = my_packet->visual;
+			players[id].m_dir = my_packet->dir;
+			players[id].m_state = my_packet->state;
+			players[id].m_hp = my_packet->hp;
+			players[id].m_max_hp = my_packet->max_hp;
 			players[id].move(my_packet->x, my_packet->y);
-			players[id].set_name(my_packet->name);
+					std::string stempid = "ID:";
+			stempid += my_packet->name;
+			players[id].set_name(stempid.c_str());
 			players[id].show();
 		}
 		else {
@@ -649,7 +697,10 @@ void ProcessPacket(char* ptr)
 			g_top_y = my_packet->y - SCREEN_HEIGHT/2;
 		}
 		else {
+			players[other_id].m_state = WALK;
+			players[other_id].m_dir = my_packet->dir;
 			players[other_id].move(my_packet->x, my_packet->y);
+			
 		}
 		break;
 	}
@@ -671,10 +722,12 @@ void ProcessPacket(char* ptr)
 		SC_CHAT_PACKET* my_packet = reinterpret_cast<SC_CHAT_PACKET*>(ptr);
 		int other_id = my_packet->id;
 		if (other_id == g_myid) {
-			avatar.set_chat(my_packet->mess);
+			//avatar.set_chat(my_packet->mess);
 		}
 		else {
 			players[other_id].set_chat(my_packet->mess);
+			wstring temp(my_packet->mess);
+			std::cout << "메세지 받음" << std::endl;
 		}
 
 		break;
@@ -696,7 +749,7 @@ void process_data(char* net_buf, size_t io_byte)
 	static char packet_buffer[BUF_SIZE];
 
 	while (0 != io_byte) {
-		if (0 == in_packet_size) in_packet_size = unsigned short(ptr[0]);
+		if (0 == in_packet_size) in_packet_size = MAKEWORD(ptr[0], ptr[1]);
 		if (io_byte + saved_packet_size >= in_packet_size) {
 			memcpy(packet_buffer + saved_packet_size, ptr, in_packet_size - saved_packet_size);
 			ProcessPacket(packet_buffer);
@@ -717,7 +770,6 @@ void client_main()
 {
 	char net_buf[BUF_SIZE];
 	size_t	received;
-
 	auto recv_result = s_socket.receive(net_buf, BUF_SIZE, received);
 
 	if (recv_result == sf::Socket::Error)
@@ -734,7 +786,7 @@ void client_main()
 
 
 	MapManger.Draw();
-		
+	
 
 
 	avatar.draw();
@@ -745,23 +797,22 @@ void client_main()
 	sprintf_s(buf, "(%d, %d)", avatar.m_x, avatar.m_y);
 	text.setString(buf);
 	g_window->draw(text);
+
+
+	UImanger->Draw();
 }
 
 void send_packet(void *packet)
 {
 	unsigned char *p = reinterpret_cast<unsigned char *>(packet);
 	size_t sent = 0;
-	s_socket.send(packet, p[0], sent);
+	s_socket.send(packet, MAKEWORD(p[0],p[1]), sent);
 }
-
-
-
 
 
 
 int main()
 {
-
 	std::string id = "";
 	do {
 		std::cout << "아이디를 입력해주세요" << std::endl;
@@ -794,6 +845,8 @@ int main()
 
 	sf::RenderWindow window(sf::VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "2D CLIENT");
 	g_window = &window;
+	UImanger = new UIManager(g_window);
+
 	auto pretime = std::chrono::system_clock::now();
 	while (window.isOpen())
 	{
@@ -802,14 +855,76 @@ int main()
 		// 경과 시간 계산
 		 elapsedTime = nowtime - pretime;
 		 pretime = nowtime;
+		 
 
-		
+		 
 
 		sf::Event event;
 		while (window.pollEvent(event))
 		{
 			if (event.type == sf::Event::Closed)
 				window.close();
+
+			if (event.type == sf::Event::MouseMoved) {
+				sf::Vector2i localPosition = sf::Mouse::getPosition(window);
+				UImanger->MovingUI(localPosition);
+				
+			}
+
+			if (event.type == sf::Event::MouseButtonPressed) {
+				switch (event.key.code)
+				{
+				case sf::Mouse::Left: 
+					sf::Vector2i localPosition = sf::Mouse::getPosition(window);
+					UImanger->ClickUI(localPosition);
+					break;
+
+			
+				}
+
+			}
+			if (event.type == sf::Event::TextEntered)
+			{
+				
+				WCHAR temp = event.text.unicode;
+	
+				
+
+				if (UImanger->bChattingmode) {
+					if (temp == 8 && !UImanger->chatcontent.empty())
+						UImanger->chatcontent.pop_back();
+					else if (temp == 13) {
+						if (UImanger->chatcontent.size()<1) {
+							UImanger->bChattingmode = false;
+						}
+						UImanger->chatcontent += L"\0";
+						CS_CHAT_PACKET p;
+						memset(&p, 0, sizeof(CS_CHAT_PACKET));
+						p.type = CS_CHAT;
+						p.size = sizeof(CS_CHAT_PACKET);
+						int i = 0;
+						for (auto chr : UImanger->chatcontent) {
+							p.mess[i++] = chr;
+							
+						}
+						p.mess[i] = '\0';
+						std::wcout << UImanger->chatcontent << std::endl;
+						avatar.set_chat(p.mess);
+
+						send_packet(&p);
+						UImanger->chatcontent = L"";
+						
+					}
+					else if(UImanger->chatcontent.length()<CHAT_SIZE){
+						UImanger->chatcontent += temp;
+					}
+
+				}
+			
+
+			}
+		
+
 			if (event.type == sf::Event::KeyPressed) {
 
 				int direction = -1;
@@ -841,6 +956,9 @@ int main()
 					window.close();
 					break;
 				}
+
+				
+
 				if (-1 != direction) {
 					CS_MOVE_PACKET p;
 					p.size = sizeof(p);

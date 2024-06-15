@@ -12,7 +12,7 @@ int GetSectorIndex(const int& x, const int& y);
 
 std::array<SESSION, MAX_USER> clients;
 
-std::queue<std::pair<int, std::pair<int, char*>>> QueryQueue; // index, OP ,id
+std::queue<std::pair<int, std::pair<int,const char*>>> QueryQueue; // index, OP ,id
 std::mutex QueryLock;
 SQLHSTMT hstmt = 0;
 enum QUERRY_TYPE { OP_GETINFO, OP_SAVEINFO };
@@ -110,7 +110,7 @@ void ConnectDataBase() {
 
 
 										for (int i = 0; i < NAME_SIZE; ++i) {
-											if (UserID[i] == '\0') break;
+											if (UserID[i] == '\0' || UserID[i] == ' ') break;
 											clients[GetOpNId.first].m_userid += UserID[i];
 										} 
 										clients[GetOpNId.first].m_visual = UserVisual;
@@ -138,8 +138,8 @@ void ConnectDataBase() {
 											if (pl.m_id == GetOpNId.first) continue;
 											if (false == can_see(pl, clients[GetOpNId.first])) continue;
 
-											/*							pl.send_add_player_packet(GetOpNId.first);
-																		clients[GetOpNId.first].send_add_player_packet(pl._id);*/
+											pl.Send_Add_Player_Packet(clients[GetOpNId.first],false);
+											clients[GetOpNId.first].Send_Add_Player_Packet(clients[pl.m_id], false);
 										}
 
 									}
@@ -170,6 +170,18 @@ void ConnectDataBase() {
 							id.assign(GetOpNId.second.second.begin(), GetOpNId.second.second.end());
 
 							cmd += id;
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_visual);
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_max_hp);
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_hp);
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_exp);
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_attack_damge);
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_level);
 							cmd += L",";
 							cmd += std::to_wstring(clients[GetOpNId.first].m_x);
 							cmd += L",";
@@ -224,7 +236,6 @@ void ConnectDataBase() {
 	}
 
 }
-
 
 int GetSectorIndex(const int& x, const int& y) {
 	int idX = x / SECTOR_SIZE;
@@ -303,10 +314,24 @@ int get_new_client_id(std::array<SESSION, MAX_USER>& clients)
 
 void disconnect(int c_id, std::array<SESSION, MAX_USER>& clients) {
 
+	for (auto& pl : clients) {
+		{
+			std::lock_guard<std::mutex> ll(pl.m_socket_lock);
+			if (ST_INGAME != pl.m_state) continue;
+		}
+		if (pl.m_id == c_id) continue;
+		if (false == can_see(clients[pl.m_id], clients[c_id])) continue;
+		pl.Send_Remove_Player_Packet(c_id);
+	}
+	QueryLock.lock();
+	QueryQueue.push({ c_id, { OP_SAVEINFO, clients[c_id].m_userid.c_str() } });
+	QueryLock.unlock();
+	closesocket(clients[c_id].m_socket);
 
+	std::lock_guard<std::mutex> ll(clients[c_id].m_socket_lock);
+	clients[c_id].m_state = ST_FREE;
 
 }
-
 
 void worker_thread(HANDLE h_iocp)
 {
@@ -365,7 +390,8 @@ void worker_thread(HANDLE h_iocp)
 			while (remain_data > 0) {
 				int packet_size = MAKEWORD(p[0], p[1]);
 				if (packet_size <= remain_data) {
-					process_packet(static_cast<int>(key), p);
+					process_packet(static_cast<
+						int>(key), p);
 					p = p + packet_size;
 					remain_data = remain_data - packet_size;
 				}
@@ -403,8 +429,15 @@ void process_packet(int c_id, char* packet)
 		switch (p->direction) {
 		case 0: if (y > 0) y--; break;
 		case 1: if (y < W_HEIGHT - 1) y++; break;
-		case 2: if (x > 0) x--; break;
-		case 3: if (x < W_WIDTH - 1) x++; break;
+		case 2: if (x > 0) {
+			clients[c_id].m_dir = -1;
+			x--; break;
+
+		}
+		case 3: if (x < W_WIDTH - 1) {
+			clients[c_id].m_dir = 1;
+			x++; break;
+		}
 		}
 		//과거 섹터
 		int preindex = GetSectorIndex(clients[c_id].m_x, clients[c_id].m_y);
@@ -443,27 +476,63 @@ void process_packet(int c_id, char* packet)
 					new_vl.insert(clients[id].m_id);
 			}
 		}
-		//clients[c_id].send_move_packet(c_id);
+		clients[c_id].Send_Move_Packet(clients[c_id]);
 
-		//// ADD_PLAYER
-		//for (auto& cl : new_vl) {
-		//	if (0 == old_vl.count(cl)) {
-		//		clients[cl].send_add_player_packet(c_id);
-		//		clients[c_id].send_add_player_packet(cl);
-		//	}
-		//	else {
-		//		// MOVE_PLAYER
-		//		clients[cl].send_move_packet(c_id);
-		//	}
-		//}
-		//// REMOVE_PLAYER
-		//for (auto& cl : old_vl) {
-		//	if (0 == new_vl.count(cl)) {
-		//		clients[cl].send_remove_player_packet(c_id);
-		//		clients[c_id].send_remove_player_packet(cl);
-		//	}
-		//}
+		clients[c_id].m_view_lock.lock();
+		clients[c_id].m_view_list = new_vl;
+		clients[c_id].m_view_lock.unlock();
+		// ADD_PLAYER
+		for (auto& cl : new_vl) {
+			if (0 == old_vl.count(cl)) {
+				clients[cl].Send_Add_Player_Packet(clients[c_id],true);
+				clients[c_id].Send_Add_Player_Packet(clients[cl],false);
+			}
+			else {
+				// MOVE_PLAYER
+				clients[cl].Send_Move_Packet(clients[c_id]);
+			}
+		}
+		// REMOVE_PLAYER
+		for (auto& cl : old_vl) {
+			if (0 == new_vl.count(cl)) { 
+				clients[cl].Send_Remove_Player_Packet(c_id);
+				clients[c_id].Send_Remove_Player_Packet(cl);
+			}
+		}
+		break;
+	}
+	case CS_CHAT: {
+		CS_CHAT_PACKET* p = reinterpret_cast<CS_CHAT_PACKET*>(packet);
+		
+		std::wstring w(p->mess);
+	;
+		std::wcout << w << std::endl;
 
+		int nowindex = GetSectorIndex(clients[c_id].m_x, clients[c_id].m_y);
+		std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
+		searchSectorID = clipinglist(clients[c_id].m_x, clients[c_id].m_y, searchSectorID);
+		searchSectorID.insert(nowindex);
+
+		std::unordered_set<int> new_vl;
+
+		for (const auto& sectorID : searchSectorID) {
+
+			pSector[sectorID].m.lock();
+			std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
+			pSector[sectorID].m.unlock();
+
+			for (const auto& id : sectorPlayerID) {
+				if (clients[id].m_state != ST_INGAME) continue;
+				if (id == c_id) continue;
+				if (true == can_see(clients[id], clients[c_id]))
+					clients[id].Send_Chat_Packet(c_id, p->mess);
+			}
+		}
+
+
+
+
+		break;
 	}
 	}
 }

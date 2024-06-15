@@ -13,6 +13,7 @@ public: // 持失切
 		m_username[0] = 0;
 		m_state = ST_FREE;
 		m_prev_remain = 0;
+		m_dir = 1;
 	}
 	//社瑚切
 	~SESSION() {};
@@ -42,6 +43,7 @@ public:			//userinfo
 	int							m_attack_damge;
 	int							m_exp;
 	int							m_level;
+	int							m_dir;
 
 
 
@@ -55,5 +57,11 @@ public:
 
 	void Send_Login_Info_Packet();
 
-};
+	void Send_Move_Packet(const SESSION& MovindPlayer);
 
+	void Send_Add_Player_Packet(const SESSION& AddingPlayer,bool bmove);
+
+	void Send_Remove_Player_Packet(int id);
+
+	void Send_Chat_Packet(int id, WCHAR mess[CHAT_SIZE]);
+};

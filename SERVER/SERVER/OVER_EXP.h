@@ -18,11 +18,12 @@ public:
 	}
 	OVER_EXP(char* packet)
 	{
-		_wsabuf.len = packet[0];
+		_wsabuf.len = MAKEWORD(packet[0], packet[1]);
 		_wsabuf.buf = _send_buf;
 		ZeroMemory(&_over, sizeof(_over));
 		_comp_type = OP_SEND;
-		memcpy(_send_buf, packet, packet[0]);
+	
+		memcpy(_send_buf, packet, MAKEWORD(packet[0], packet[1]));
 	}
 };
 
