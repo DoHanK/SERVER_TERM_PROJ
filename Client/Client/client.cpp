@@ -95,6 +95,18 @@ public:
 		if (UIKind == chat) return { 100,20};
 	}
 
+	 std::wstring GetJobwString(int job) {
+		if (WARRRIOR == job) return L"WARRIOR";
+		if (ROBOT == job)	return L"ROBOT";
+		if (NINJA == job) return L"NINJA";
+		if (WOMANZOMBIE == job) return L"WOMANZOMBIE";
+		if (MANZOMBIE == job) return L"MANZOMBIE";
+		if (DOG == job) return L"DOG";
+		if (DINO == job) return L"DINO";
+		if (CAT == job) return L"CAT";
+
+		return L"NONE";
+	}
 };
 
 
@@ -192,6 +204,15 @@ public:
 		else m_name.setFillColor(sf::Color(255, 255, 0));
 		m_name.setStyle(sf::Text::Bold);
 	}
+
+	void set_name(const WCHAR str[]) {
+		m_name.setFont(g_fhangle);
+		m_name.setString(str);
+		if (id < MAX_USER) m_name.setFillColor(sf::Color(255, 255, 255));
+		else m_name.setFillColor(sf::Color(255, 255, 0));
+		m_name.setStyle(sf::Text::Bold);
+	}
+
 
 	void set_chat(const char str[]) {
 		m_chat.setFont(g_font);
@@ -700,10 +721,18 @@ void ProcessPacket(char* ptr)
 			players[id].show();
 		}
 		else {
-			players[id] = CHARECTOR{  256, 0, 64, 64,0 };
+			players[id] = CHARECTOR{ 0, 0, 64, 64,0 };
 			players[id].id = id;
+			players[id].m_job = my_packet->visual;
+			players[id].m_dir = my_packet->dir;
+			players[id].m_state = my_packet->state;
+			players[id].m_hp = my_packet->hp;
+			players[id].m_max_hp = my_packet->max_hp;
 			players[id].move(my_packet->x, my_packet->y);
-			players[id].set_name(my_packet->name);
+			std::wstring stempid = L"¸ó½ºÅÍ:";
+
+			stempid += ResourceManager.GetJobwString(my_packet->visual);
+			players[id].set_name(stempid.c_str());
 			players[id].show();
 		}		
 		break;
@@ -723,6 +752,7 @@ void ProcessPacket(char* ptr)
 			players[other_id].move(my_packet->x, my_packet->y);
 			
 		}
+		players[other_id].show();
 		break;
 	}
 	case SC_REMOVE_OBJECT:

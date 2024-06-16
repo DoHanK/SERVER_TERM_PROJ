@@ -4,24 +4,48 @@
 #include "CELL.h"
 #include "MapInfoLoad.h"
 
+
 MapInfoLoad maploader;
 void process_packet(int c_id, char* packet);
 bool can_see(const SESSION& a, const SESSION& b);
 int get_new_client_id(std::array<SESSION, MAX_USER>& clients);
-void disconnect(int c_id, std::array<SESSION, MAX_USER>& clients);
+void disconnect(int c_id, std::array<SESSION, MAX_USER+MAX_NPC>& clients);
 int GetSectorIndex(const int& x, const int& y);
+std::string GetJobString(int job);
+void WakeUpNPC(int npc_id, int waker);
+bool is_pc(int object_id)
+{
+	return object_id < MAX_USER;
+}
+
+bool is_npc(int object_id)
+{
+	return !is_pc(object_id);
+}
+struct TIMER_EVENT {
+	int obj_id;
+	std::chrono::system_clock::time_point wakeup_time;
+	EVENT_TYPE event_id;
+	int target_id;
+	constexpr bool operator < (const TIMER_EVENT& L) const
+	{
+		return (wakeup_time > L.wakeup_time);
+	}
+};
+concurrency::concurrent_priority_queue<TIMER_EVENT> timer_queue;
 
 
-std::array<SESSION, MAX_USER> clients;
 
-std::queue<std::pair<int, std::pair<int,const char*>>> QueryQueue; // index, OP ,id
+std::array<SESSION, MAX_USER + MAX_NPC> clients;
+
+std::queue<std::pair<int, std::pair<int,char* >>> QueryQueue; // index, OP ,id
 std::mutex QueryLock;
 SQLHSTMT hstmt = 0;
-enum QUERRY_TYPE { OP_GETINFO, OP_SAVEINFO };
+enum QUERRY_TYPE { OP_GETINFO, OP_SAVEINFO ,OP_CRAETE_ID };
 
 
 
-
+HANDLE g_h_iocp;
 SOCKET g_s_socket, g_c_socket;
 OVER_EXP g_a_over;
  CELL* pSector = nullptr;
@@ -65,7 +89,7 @@ void ConnectDataBase() {
 				if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
 					while (true) {
 						//std::cout << "루프도는중" << std::endl;
-						std::pair<int, std::pair<int, std::string>> GetOpNId;
+						std::pair<int, std::pair<int,char*>> GetOpNId;
 
 						QueryLock.lock();
 						if (0 < QueryQueue.size()) {
@@ -81,8 +105,9 @@ void ConnectDataBase() {
 
 						if (GetOpNId.second.first == OP_GETINFO) {
 							std::wstring cmd = L"EXEC GetUserInfo ";
+							std::string tempid = GetOpNId.second.second;
 							std::wstring id;
-							id.assign(GetOpNId.second.second.begin(), GetOpNId.second.second.end());
+							id.assign(tempid.begin(), tempid.end());
 							cmd += id;
 
 							retcode = SQLExecDirect(hstmt, (SQLWCHAR*)cmd.c_str(), SQL_NTS);
@@ -109,12 +134,7 @@ void ConnectDataBase() {
 									{
 
 								
-										clients[GetOpNId.first].m_userid = "";
-
-										for (int i = 0; i < NAME_SIZE; ++i) {
-											if (UserID[i] == '\0' || UserID[i] == ' ') break;
-											clients[GetOpNId.first].m_userid += UserID[i];
-										} 
+										clients[GetOpNId.first].m_userid = GetOpNId.second.second;				
 										clients[GetOpNId.first].m_visual = UserVisual;
 										clients[GetOpNId.first].m_max_hp = UserMaxHp;
 										clients[GetOpNId.first].m_hp = UserHp;
@@ -123,6 +143,7 @@ void ConnectDataBase() {
 										clients[GetOpNId.first].m_level = UserLevel;
 										clients[GetOpNId.first].m_x = UserPosX;
 										clients[GetOpNId.first].m_y = UserPosY;
+
 										int sectornum = GetSectorIndex(clients[GetOpNId.first].m_x, clients[GetOpNId.first].m_y);
 
 										pSector[sectornum].AddPlayer(GetOpNId.first);
@@ -132,22 +153,66 @@ void ConnectDataBase() {
 											std::lock_guard<std::mutex> ll{ clients[GetOpNId.first].m_socket_lock };
 											clients[GetOpNId.first].m_state = ST_INGAME;
 										}
+
 										for (auto& pl : clients) {
 											{
 												std::lock_guard<std::mutex> ll(pl.m_socket_lock);
 												if (ST_INGAME != pl.m_state) continue;
 											}
 											if (pl.m_id == GetOpNId.first) continue;
-											if (false == can_see(pl, clients[GetOpNId.first])) continue;
-
-											pl.Send_Add_Player_Packet(clients[GetOpNId.first],false);
+											if (false == can_see(clients[GetOpNId.first], clients[pl.m_id]))
+												continue;
+											if (is_pc(pl.m_id)) pl.Send_Add_Player_Packet(clients[GetOpNId.first],false);
+											else WakeUpNPC(pl.m_id, GetOpNId.first);
 											clients[GetOpNId.first].Send_Add_Player_Packet(clients[pl.m_id], false);
 										}
 
+										delete  GetOpNId.second.second;
+										break;
+
 									}
 									else if (retcode == SQL_NO_DATA && i == 0) {
-										//clients[GetOpNId.first].send_login_fail_packet();
-										disconnect(GetOpNId.first, clients);
+										//데이터가 없으면??
+
+										clients[GetOpNId.first].m_userid = "";
+
+							
+										clients[GetOpNId.first].m_visual = rand()%3;
+										clients[GetOpNId.first].m_max_hp = 100;
+										clients[GetOpNId.first].m_hp = 100;
+										clients[GetOpNId.first].m_exp = 0;
+										clients[GetOpNId.first].m_attack_damge = 10;
+										clients[GetOpNId.first].m_level = 1;
+										clients[GetOpNId.first].m_x = 0;
+										clients[GetOpNId.first].m_y = 0;
+
+										int sectornum = GetSectorIndex(clients[GetOpNId.first].m_x, clients[GetOpNId.first].m_y);
+
+										pSector[sectornum].AddPlayer(GetOpNId.first);
+
+										clients[GetOpNId.first].Send_Login_Info_Packet();
+										{
+											std::lock_guard<std::mutex> ll{ clients[GetOpNId.first].m_socket_lock };
+											clients[GetOpNId.first].m_state = ST_INGAME;
+										}
+
+										for (auto& pl : clients) {
+											{
+												std::lock_guard<std::mutex> ll(pl.m_socket_lock);
+												if (ST_INGAME != pl.m_state) continue;
+											}
+											if (pl.m_id == GetOpNId.first) continue;
+											if (false == can_see(clients[GetOpNId.first], clients[pl.m_id]))
+												continue;
+											if (is_pc(pl.m_id)) pl.Send_Add_Player_Packet(clients[GetOpNId.first], false);
+											else WakeUpNPC(pl.m_id, GetOpNId.first);
+											clients[GetOpNId.first].Send_Add_Player_Packet(clients[pl.m_id], false);
+										}
+										char* name = new char[NAME_SIZE];
+										memcpy(name, clients[GetOpNId.first].m_userid.c_str(), NAME_SIZE);
+										QueryLock.lock();
+										QueryQueue.push({ clients[GetOpNId.first].m_id, { OP_GETINFO , name} });
+										QueryLock.unlock();
 
 									}
 									else
@@ -168,8 +233,9 @@ void ConnectDataBase() {
 						else if (GetOpNId.second.first == OP_SAVEINFO) {
 
 							std::wstring cmd = L"EXEC SavePlayerInfo ";
+							std::string tempid = GetOpNId.second.second;
 							std::wstring id;
-							id.assign(GetOpNId.second.second.begin(), GetOpNId.second.second.end());
+							id.assign(tempid.begin(), tempid.end());
 
 							cmd += id;
 							cmd += L",";
@@ -193,7 +259,14 @@ void ConnectDataBase() {
 
 						}
 
+						else if (GetOpNId.second.first == OP_CRAETE_ID) {
 
+
+
+
+
+							delete  GetOpNId.second.second;
+						}
 
 						//if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
 
@@ -248,7 +321,6 @@ int GetSectorIndex(const int& x, const int& y) {
 
 }
 
-
 std::unordered_set<int> adjacentSector(int sectorid) {
 	std::unordered_set<int> adjectlist;
 
@@ -295,6 +367,20 @@ std::unordered_set<int> clipinglist(int x, int y, const std::unordered_set<int>&
 }
 
 
+std::string GetJobString(int job) {
+	if (WARRRIOR == job) return "WARRIOR";
+	if (ROBOT == job)	return "ROBOT";
+	if (NINJA == job) return "NINJA";
+	if (WOMANZOMBIE == job) return "WOMANZOMBIE";
+	if (MANZOMBIE == job) return "MANZOMBIE";
+	if (DOG == job) return "DOG";
+	if (DINO == job) return "DINO";
+	if (CAT == job) return "CAT";
+
+	return "NONE";
+}
+
+
 bool can_see(const SESSION& a, const SESSION& b)
 {
 	int dist_s = (a.m_x - b.m_x) * (a.m_x - b.m_x)
@@ -304,7 +390,7 @@ bool can_see(const SESSION& a, const SESSION& b)
 
 }
 
-int get_new_client_id(std::array<SESSION, MAX_USER>& clients)
+int get_new_client_id(std::array<SESSION, MAX_USER+ MAX_NPC>& clients)
 {
 	for (int i = 0; i < MAX_USER; ++i) {
 		std::lock_guard <std::mutex> ll{ clients[i].m_socket_lock };
@@ -314,7 +400,7 @@ int get_new_client_id(std::array<SESSION, MAX_USER>& clients)
 	return -1;
 }
 
-void disconnect(int c_id, std::array<SESSION, MAX_USER>& clients) {
+void disconnect(int c_id, std::array<SESSION, MAX_USER+ MAX_NPC>& clients) {
 
 	for (auto& pl : clients) {
 		{
@@ -325,8 +411,10 @@ void disconnect(int c_id, std::array<SESSION, MAX_USER>& clients) {
 		if (false == can_see(clients[pl.m_id], clients[c_id])) continue;
 		pl.Send_Remove_Player_Packet(c_id);
 	}
+	char* name = new char[NAME_SIZE];
+	memcpy(name, clients[c_id].m_userid.c_str(), NAME_SIZE);
 	QueryLock.lock();
-	QueryQueue.push({ c_id, { OP_SAVEINFO, clients[c_id].m_userid.c_str() } });
+	QueryQueue.push({ c_id, { OP_SAVEINFO, name } });
 	QueryLock.unlock();
 	closesocket(clients[c_id].m_socket);
 
@@ -418,8 +506,10 @@ void process_packet(int c_id, char* packet)
 	switch (packet[2]) {
 	case CS_LOGIN: {
 		CS_LOGIN_PACKET* p = reinterpret_cast<CS_LOGIN_PACKET*>(packet);
+		char* name = new char[NAME_SIZE];
+		memcpy(name, p->userid, NAME_SIZE);
 		QueryLock.lock();
-		QueryQueue.push({ c_id, { OP_GETINFO ,p->userid } });
+		QueryQueue.push({ c_id, { OP_GETINFO ,name } });
 		QueryLock.unlock();
 		break;
 	}
@@ -445,6 +535,7 @@ void process_packet(int c_id, char* packet)
 		if (maploader.layer[1][y * W_WIDTH + x]) {
 			break;
 		}
+
 		//과거 섹터
 		int preindex = GetSectorIndex(clients[c_id].m_x, clients[c_id].m_y);
 		clients[c_id].m_x = x;
@@ -462,6 +553,7 @@ void process_packet(int c_id, char* packet)
 		std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
 		searchSectorID = clipinglist(x, y, searchSectorID);
 		searchSectorID.insert(nowindex);
+
 		//뷰리스트 업데이트
 		clients[c_id].m_view_lock.lock();
 		std::unordered_set<int> old_vl = clients[c_id].m_view_list;
@@ -482,29 +574,53 @@ void process_packet(int c_id, char* packet)
 					new_vl.insert(clients[id].m_id);
 			}
 		}
+
 		clients[c_id].Send_Move_Packet(clients[c_id]);
 
-		clients[c_id].m_view_lock.lock();
-		clients[c_id].m_view_list = new_vl;
-		clients[c_id].m_view_lock.unlock();
+
 		// ADD_PLAYER
 		for (auto& cl : new_vl) {
-			if (0 == old_vl.count(cl)) {
-				clients[cl].Send_Add_Player_Packet(clients[c_id],true);
+
+			auto& cpl = clients[cl];
+			if (is_pc(cl)) {
+				cpl.m_view_lock.lock();
+
+				if (0!= clients[cl].m_view_list.count(c_id)) {
+					cpl.m_view_lock.unlock();
+
+					clients[cl].Send_Move_Packet(clients[c_id]);
+				}
+				else {
+					cpl.m_view_list.insert(c_id);
+					cpl.m_view_lock.unlock();
+
+					clients[cl].Send_Add_Player_Packet(clients[c_id], true);
+				}
+			}
+			else WakeUpNPC(cl, c_id);
+
+			if (old_vl.count(cl) == 0)
 				clients[c_id].Send_Add_Player_Packet(clients[cl],false);
-			}
-			else {
-				// MOVE_PLAYER
-				clients[cl].Send_Move_Packet(clients[c_id]);
-			}
 		}
 		// REMOVE_PLAYER
 		for (auto& cl : old_vl) {
 			if (0 == new_vl.count(cl)) { 
-				clients[cl].Send_Remove_Player_Packet(c_id);
+
 				clients[c_id].Send_Remove_Player_Packet(cl);
+
+				if (is_pc(cl)) {
+					clients[cl].m_view_lock.lock();
+					clients[cl].m_view_list.erase(c_id);
+					clients[cl].m_view_lock.unlock();
+					clients[cl].Send_Remove_Player_Packet(c_id);
+
+				}
 			}
 		}
+
+		clients[c_id].m_view_lock.lock();
+		clients[c_id].m_view_list = new_vl;
+		clients[c_id].m_view_lock.unlock();
 		break;
 	}
 	case CS_CHAT: {
@@ -541,11 +657,6 @@ void process_packet(int c_id, char* packet)
 		break;
 	}
 	case CS_ATTACK: {
-		CS_CHAT_PACKET* p = reinterpret_cast<CS_CHAT_PACKET*>(packet);
-
-		std::wstring w(p->mess);
-		;
-		std::wcout << w << std::endl;
 
 		int nowindex = GetSectorIndex(clients[c_id].m_x, clients[c_id].m_y);
 		std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
@@ -615,30 +726,133 @@ void process_packet(int c_id, char* packet)
 		}
 		clients[c_id].Send_Move_Packet(clients[c_id]);
 
-		clients[c_id].m_view_lock.lock();
-		clients[c_id].m_view_list = new_vl;
-		clients[c_id].m_view_lock.unlock();
 		// ADD_PLAYER
 		for (auto& cl : new_vl) {
-			if (0 == old_vl.count(cl)) {
-				clients[cl].Send_Add_Player_Packet(clients[c_id], true);
+
+			auto& cpl = clients[cl];
+			if (is_pc(cl)) {
+				cpl.m_view_lock.lock();
+
+				if (0 != clients[cl].m_view_list.count(c_id)) {
+					cpl.m_view_lock.unlock();
+
+					clients[cl].Send_Move_Packet(clients[c_id]);
+				}
+				else {
+					cpl.m_view_list.insert(c_id);
+					cpl.m_view_lock.unlock();
+
+					clients[cl].Send_Add_Player_Packet(clients[c_id], true);
+				}
+			}
+			else WakeUpNPC(cl, c_id);
+
+			if (old_vl.count(cl) == 0)
 				clients[c_id].Send_Add_Player_Packet(clients[cl], false);
-			}
-			else {
-				// MOVE_PLAYER
-				clients[cl].Send_Move_Packet(clients[c_id]);
-			}
 		}
 		// REMOVE_PLAYER
 		for (auto& cl : old_vl) {
 			if (0 == new_vl.count(cl)) {
-				clients[cl].Send_Remove_Player_Packet(c_id);
+
 				clients[c_id].Send_Remove_Player_Packet(cl);
+
+				if (is_pc(cl)) {
+					clients[cl].m_view_lock.lock();
+					clients[cl].m_view_list.erase(c_id);
+					clients[cl].m_view_lock.unlock();
+					clients[cl].Send_Remove_Player_Packet(c_id);
+
+				}
 			}
 		}
-		break;
+
+		clients[c_id].m_view_lock.lock();
+		clients[c_id].m_view_list = new_vl;
+		clients[c_id].m_view_lock.unlock();
+
 		break;
 	}
+	}
+}
+
+
+void InitializeNPC()
+{
+	std::cout << "NPC intialize begin.\n";
+	for (int i = MAX_USER; i < MAX_USER + MAX_NPC; ++i) {
+		clients[i].m_x = rand() % W_WIDTH;
+		clients[i].m_y = rand() % W_HEIGHT;
+
+		int sectornum = GetSectorIndex(clients[i].m_x, clients[i].m_y);
+
+		pSector[sectornum].AddPlayer(i);
+
+		clients[i].m_id = i;
+		//몬스터 이름 정해주기
+		int monkindnum = 3+rand() % 5;
+		clients[i].m_userid = "";
+		clients[i].m_userid+=GetJobString(monkindnum);
+		clients[i].m_visual = monkindnum;
+		clients[i].m_hp = 100;
+		clients[i].m_max_hp = 100;
+
+		clients[i].m_state = ST_INGAME;
+
+		auto L = clients[i]._L = luaL_newstate();
+		luaL_openlibs(L);
+		luaL_loadfile(L, "npc.lua");
+		lua_pcall(L, 0, 0, 0);
+
+		lua_getglobal(L, "set_uid");
+		lua_pushnumber(L, i);
+		lua_pcall(L, 1, 0, 0);
+		// lua_pop(L, 1);// eliminate set_uid from stack after call
+
+		//lua_register(L, "API_SendMessage", API_SendMessage);
+		//lua_register(L, "API_get_x", API_get_x);
+		//lua_register(L, "API_get_y", API_get_y);
+	}
+	std::cout << "NPC initialize end.\n";
+}
+
+void WakeUpNPC(int npc_id, int waker)
+{
+	OVER_EXP* exover = new OVER_EXP;
+	exover->_comp_type = OP_AI_HELLO;
+	exover->_ai_target_obj = waker;
+	PostQueuedCompletionStatus(g_h_iocp, 1, npc_id, &exover->_over);
+
+	if (clients[npc_id]._is_active) return;
+	bool old_state = false;
+	
+	if (false == std::atomic_compare_exchange_strong(&clients[npc_id]._is_active, &old_state, true))
+		return;
+	TIMER_EVENT ev{ npc_id, std::chrono::system_clock::now(), EV_RANDOM_MOVE, 0 };
+	timer_queue.push(ev);
+}
+
+void do_timer()
+{
+	while (true) {
+		TIMER_EVENT ev;
+		auto current_time = std::chrono::system_clock::now();
+		if (true == timer_queue.try_pop(ev)) {
+			if (ev.wakeup_time > current_time) {
+				timer_queue.push(ev);		// 최적화 필요
+				// timer_queue에 다시 넣지 않고 처리해야 한다.
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));  // 실행시간이 아직 안되었으므로 잠시 대기
+				continue;
+			}
+			switch (ev.event_id) {
+			case EV_RANDOM_MOVE:
+				OVER_EXP* ov = new OVER_EXP;
+				ov->_comp_type = OP_NPC_MOVE;
+				PostQueuedCompletionStatus(g_h_iocp, 1, ev.obj_id, &ov->_over);
+				break;
+			}
+			continue;		// 즉시 다음 작업 꺼내기
+		}
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));    // timer_queue가 비어 있으니 잠시 기다렸다가 다시 시작
 	}
 }
 
@@ -675,11 +889,13 @@ int main() {
 	}
 	std::cout << "맵 로드시작.." << std::endl;
 	maploader.Load_Map_info();
-	std::cout << "맵 로드 끝 .." << std::endl;
+	std::cout << "맵 로드 완료 .." << std::endl;
+
+	std::cout << "npc 초기화 시작.." << std::endl;
+	InitializeNPC();
+	std::cout << "npc 초기화 완료" << std::endl;
 
 
-
-	HANDLE h_iocp;
 
 	WSADATA WSAData;
 	WSAStartup(MAKEWORD(2, 2), &WSAData);
@@ -693,8 +909,8 @@ int main() {
 	listen(g_s_socket, SOMAXCONN);
 	SOCKADDR_IN cl_addr;
 	int addr_size = sizeof(cl_addr);
-	h_iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, 0);
-	CreateIoCompletionPort(reinterpret_cast<HANDLE>(g_s_socket), h_iocp, 9999, 0);
+	g_h_iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, 0);
+	CreateIoCompletionPort(reinterpret_cast<HANDLE>(g_s_socket), g_h_iocp, 9999, 0);
 	g_c_socket = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
 	g_a_over._comp_type = OP_ACCEPT;
 	AcceptEx(g_s_socket, g_c_socket, g_a_over._send_buf, 0, addr_size + 16, addr_size + 16, 0, &g_a_over._over);
@@ -702,12 +918,13 @@ int main() {
 	std::vector <std::thread> worker_threads;
 	int num_threads = std::thread::hardware_concurrency();
 	for (int i = 0; i < num_threads; ++i)
-		worker_threads.emplace_back(worker_thread, h_iocp);
+		worker_threads.emplace_back(worker_thread, g_h_iocp);
 
 	std::thread DataBase_thread{ ConnectDataBase };
+	std::thread timer_thread{ do_timer };
 
 	DataBase_thread.join();
-
+	timer_thread.join();
 	for (auto& th : worker_threads)
 		th.join();
 

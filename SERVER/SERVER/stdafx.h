@@ -9,7 +9,10 @@
 #include <unordered_set>
 #include <queue>
 #include <string>
-#include "protocol.h"
+#include <concurrent_priority_queue.h>
+#include "include/lua.hpp"
+#include <mutex>
+
 #define UNICODE  
 #include <sqlext.h>  
 
@@ -17,6 +20,7 @@
 
 #pragma comment(lib, "WS2_32.lib")
 #pragma comment(lib, "MSWSock.lib")
+#pragma comment(lib, "lua54.lib")
 
 // SQLBindCol_ref.cpp  
 // compile with: odbc32.lib  
@@ -26,20 +30,20 @@
 
 
 
-
+#include "protocol.h"
 
 
 enum S_STATE { ST_FREE, ST_ALLOC, ST_INGAME };
 //IOCP ¿¬»ê
-enum COMP_TYPE { OP_ACCEPT, OP_RECV, OP_SEND };
+enum COMP_TYPE { OP_ACCEPT, OP_RECV, OP_SEND, OP_NPC_MOVE, OP_AI_HELLO };
 constexpr int VIEW_RANGE = 5;
 constexpr int SECTOR_SIZE = 5;
+enum EVENT_TYPE { EV_RANDOM_MOVE };
 
 class SECTOR_NUM {
 public:
 	static int nSectorX;
 	static int nSectorY;
 };
-
 
 

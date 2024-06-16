@@ -44,8 +44,9 @@ public:			//userinfo
 	int							m_exp;
 	int							m_level;
 	int							m_dir;
-
-
+public:
+	lua_State* _L;
+	std::atomic_bool	_is_active;		// 주위에 플레이어가 있는가?
 
 public: 
 	// func for Data Communication
@@ -67,3 +68,5 @@ public:
 
 	void Send_Attack_Packet(int  id);
 };
+
+
