@@ -44,7 +44,7 @@ void SESSION::Send_Move_Packet(const SESSION& MovingPlayer)
 	p.type = SC_MOVE_OBJECT;
 	p.id = MovingPlayer.m_id;
 	p.dir = MovingPlayer.m_dir;
-	p.move_time;
+	p.move_time= MovingPlayer.m_last_move_time;
 	p.x = MovingPlayer.m_x;
 	p.y = MovingPlayer.m_y;
 

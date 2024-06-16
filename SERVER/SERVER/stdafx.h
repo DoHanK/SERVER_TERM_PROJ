@@ -12,6 +12,8 @@
 #include <concurrent_priority_queue.h>
 #include "include/lua.hpp"
 #include <mutex>
+#include <random>
+
 
 #define UNICODE  
 #include <sqlext.h>  

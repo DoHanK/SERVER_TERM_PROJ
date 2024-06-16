@@ -96,16 +96,16 @@ public:
 	}
 
 	 std::wstring GetJobwString(int job) {
-		if (WARRRIOR == job) return L"WARRIOR";
-		if (ROBOT == job)	return L"ROBOT";
-		if (NINJA == job) return L"NINJA";
-		if (WOMANZOMBIE == job) return L"WOMANZOMBIE";
-		if (MANZOMBIE == job) return L"MANZOMBIE";
-		if (DOG == job) return L"DOG";
-		if (DINO == job) return L"DINO";
-		if (CAT == job) return L"CAT";
+		 if (WARRRIOR == job) return L"WARRIOR";
+		 if (ROBOT == job)	return L"ROBOT";
+		 if (NINJA == job) return L"NINJA";
+		 if (WOMANZOMBIE == job) return L"여자좀비";
+		 if (MANZOMBIE == job) return L"남자좀비";
+		 if (DOG == job) return L"길강쥐";
+		 if (DINO == job) return L"티노";
+		 if (CAT == job) return L"길냥이";
 
-		return L"NONE";
+		 return L"NONE";
 	}
 };
 
@@ -135,6 +135,7 @@ protected:
 
 	sf::Text m_name;
 	sf::Text m_chat;
+	sf::Text m_LV;
 	chrono::system_clock::time_point m_mess_end_time;
 public:
 	int id;
@@ -201,18 +202,24 @@ public:
 		m_name.setFont(g_font);
 		m_name.setString(str);
 		if (id < MAX_USER) m_name.setFillColor(sf::Color(255, 255, 255));
-		else m_name.setFillColor(sf::Color(255, 255, 0));
+		else m_name.setFillColor(sf::Color(255, 0, 0));
 		m_name.setStyle(sf::Text::Bold);
 	}
-
+	
 	void set_name(const WCHAR str[]) {
 		m_name.setFont(g_fhangle);
 		m_name.setString(str);
 		if (id < MAX_USER) m_name.setFillColor(sf::Color(255, 255, 255));
-		else m_name.setFillColor(sf::Color(255, 255, 0));
+		else m_name.setFillColor(sf::Color(255, 0, 0));
 		m_name.setStyle(sf::Text::Bold);
 	}
-
+	void set_level(const char str[]) {
+		m_LV.setFont(g_font);
+		m_LV.setString(str);
+		if (id < MAX_USER) m_LV.setFillColor(sf::Color(255, 255, 255));
+		else m_LV.setFillColor(sf::Color(255, 0, 0));
+		m_LV.setStyle(sf::Text::Bold);
+	}
 
 	void set_chat(const char str[]) {
 		m_chat.setFont(g_font);
@@ -537,10 +544,12 @@ public:
 
 
 		auto size = m_name.getGlobalBounds();
+		m_name.setPosition(rx + 32 - size.width / 2, ry -40 + GetPosOffsetY(m_dir));
+		g_window->draw(m_name);
 
-
-			m_name.setPosition(rx + 32 - size.width / 2, ry -40 + GetPosOffsetY(m_dir));
-			g_window->draw(m_name);
+		size = m_LV.getGlobalBounds();
+		m_LV.setPosition(rx + 32 - size.width / 2, ry +50);
+		g_window->draw(m_LV);
 		
 			if (m_mess_end_time > chrono::system_clock::now()) {
 				size = m_chat.getGlobalBounds();
@@ -687,7 +696,10 @@ void ProcessPacket(char* ptr)
 		avatar.m_hp = packet->hp;
 		avatar.m_exp = packet->exp;
 		avatar.m_attack = packet->attack_damge;
-		avatar.m_level = packet->level;			
+		avatar.m_level = packet->level;	
+		std::string stemplevel = "LV:";
+		stemplevel += std::to_string(avatar.m_level);
+		avatar.set_level(stemplevel.c_str());
 		avatar.move(packet->x, packet->y);
 
 
@@ -715,7 +727,11 @@ void ProcessPacket(char* ptr)
 			players[id].m_hp = my_packet->hp;
 			players[id].m_max_hp = my_packet->max_hp;
 			players[id].move(my_packet->x, my_packet->y);
-					std::string stempid = "ID:";
+			players[id].m_level = my_packet->level;   
+			std::string stemplevel = "LV:";
+			stemplevel += std::to_string(players[id].m_level);
+			players[id].set_level(stemplevel.c_str());
+			std::string stempid = "ID:";
 			stempid += my_packet->name;
 			players[id].set_name(stempid.c_str());
 			players[id].show();
@@ -729,8 +745,12 @@ void ProcessPacket(char* ptr)
 			players[id].m_hp = my_packet->hp;
 			players[id].m_max_hp = my_packet->max_hp;
 			players[id].move(my_packet->x, my_packet->y);
-			std::wstring stempid = L"몬스터:";
 
+			players[id].m_level = my_packet->level;
+			std::string stemplevel = "LV:";
+			stemplevel += std::to_string(players[id].m_level);
+			players[id].set_level(stemplevel.c_str());
+			std::wstring stempid = L"";
 			stempid += ResourceManager.GetJobwString(my_packet->visual);
 			players[id].set_name(stempid.c_str());
 			players[id].show();

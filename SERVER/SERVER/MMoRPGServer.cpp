@@ -6,6 +6,8 @@
 
 
 MapInfoLoad maploader;
+std::random_device rd;
+
 void process_packet(int c_id, char* packet);
 bool can_see(const SESSION& a, const SESSION& b);
 int get_new_client_id(std::array<SESSION, MAX_USER>& clients);
@@ -173,9 +175,9 @@ void ConnectDataBase() {
 									}
 									else if (retcode == SQL_NO_DATA && i == 0) {
 										//데이터가 없으면??
-
-										clients[GetOpNId.first].m_userid = "";
-
+										srand(time(0));
+										clients[GetOpNId.first].m_userid = GetOpNId.second.second;
+										std::cout << "입장" << clients[GetOpNId.first].m_userid << std::endl;
 							
 										clients[GetOpNId.first].m_visual = rand()%3;
 										clients[GetOpNId.first].m_max_hp = 100;
@@ -183,8 +185,8 @@ void ConnectDataBase() {
 										clients[GetOpNId.first].m_exp = 0;
 										clients[GetOpNId.first].m_attack_damge = 10;
 										clients[GetOpNId.first].m_level = 1;
-										clients[GetOpNId.first].m_x = 0;
-										clients[GetOpNId.first].m_y = 0;
+										clients[GetOpNId.first].m_x = rand()% W_WIDTH;
+										clients[GetOpNId.first].m_y = rand() % W_HEIGHT;
 
 										int sectornum = GetSectorIndex(clients[GetOpNId.first].m_x, clients[GetOpNId.first].m_y);
 
@@ -208,12 +210,15 @@ void ConnectDataBase() {
 											else WakeUpNPC(pl.m_id, GetOpNId.first);
 											clients[GetOpNId.first].Send_Add_Player_Packet(clients[pl.m_id], false);
 										}
-										char* name = new char[NAME_SIZE];
-										memcpy(name, clients[GetOpNId.first].m_userid.c_str(), NAME_SIZE);
-										QueryLock.lock();
-										QueryQueue.push({ clients[GetOpNId.first].m_id, { OP_GETINFO , name} });
-										QueryLock.unlock();
+					/*					char* name = new char[NAME_SIZE];
+										memcpy(name, clients[GetOpNId.first].m_userid.c_str(), NAME_SIZE);*/
+										//QueryLock.lock();
+										//QueryQueue.push({ clients[GetOpNId.first].m_id, {  , name} });
+										//QueryLock.unlock();
 
+										//std::cout << "퇴장" << clients[GetOpNId.first].m_userid << std::endl;
+
+										break;
 									}
 									else
 										break;
@@ -371,11 +376,11 @@ std::string GetJobString(int job) {
 	if (WARRRIOR == job) return "WARRIOR";
 	if (ROBOT == job)	return "ROBOT";
 	if (NINJA == job) return "NINJA";
-	if (WOMANZOMBIE == job) return "WOMANZOMBIE";
-	if (MANZOMBIE == job) return "MANZOMBIE";
-	if (DOG == job) return "DOG";
-	if (DINO == job) return "DINO";
-	if (CAT == job) return "CAT";
+	if (WOMANZOMBIE == job) return "여자좀비";
+	if (MANZOMBIE == job) return "남자좀비";
+	if (DOG == job) return "길강쥐";
+	if (DINO == job) return "티노";
+	if (CAT == job) return "길냥이";
 
 	return "NONE";
 }
@@ -512,10 +517,12 @@ void process_packet(int c_id, char* packet)
 		QueryQueue.push({ c_id, { OP_GETINFO ,name } });
 		QueryLock.unlock();
 		break;
+		
 	}
 	case CS_MOVE: {
 		CS_MOVE_PACKET* p = reinterpret_cast<CS_MOVE_PACKET*>(packet);
 		clients[c_id].m_last_move_time = p->move_time;
+		//std::cout << "클라이언트이동시간: " << clients[c_id].m_last_move_time << std::endl;
 		short x = clients[c_id].m_x;
 		short y = clients[c_id].m_y;
 		switch (p->direction) {
@@ -683,8 +690,9 @@ void process_packet(int c_id, char* packet)
 		break;
 	}
 	case CS_TELEPORT:{
-
-		int select = rand() % maploader.validnode.size();
+		std::uniform_int_distribution<int> uid(0, maploader.validnode.size());
+		
+		int select = uid(rd);
 		int x = select % 2000;
 		int y = select / 2000;
 		//과거 섹터
@@ -778,11 +786,14 @@ void process_packet(int c_id, char* packet)
 
 void InitializeNPC()
 {
+	std::uniform_int_distribution<int> uid(0, maploader.validnode.size());
+	
 	std::cout << "NPC intialize begin.\n";
 	for (int i = MAX_USER; i < MAX_USER + MAX_NPC; ++i) {
-		clients[i].m_x = rand() % W_WIDTH;
-		clients[i].m_y = rand() % W_HEIGHT;
-
+		int index = uid(rd);
+		int node = maploader.validnode[index];
+		clients[i].m_x = node % W_WIDTH;
+		clients[i].m_y = node/ W_HEIGHT;
 		int sectornum = GetSectorIndex(clients[i].m_x, clients[i].m_y);
 
 		pSector[sectornum].AddPlayer(i);
@@ -790,6 +801,7 @@ void InitializeNPC()
 		clients[i].m_id = i;
 		//몬스터 이름 정해주기
 		int monkindnum = 3+rand() % 5;
+
 		clients[i].m_userid = "";
 		clients[i].m_userid+=GetJobString(monkindnum);
 		clients[i].m_visual = monkindnum;
