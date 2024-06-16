@@ -808,6 +808,31 @@ void ProcessPacket(char* ptr)
 		players[other_id].m_state = ATTACK;
 		break;
 	}
+	case SC_STAT_CHANGE: {
+		SC_STAT_CHANGE_PACKET* my_packet = reinterpret_cast<SC_STAT_CHANGE_PACKET*>(ptr);
+		int other_id = my_packet->id;
+		if (other_id == g_myid) {
+			avatar.m_exp = my_packet->exp;
+			avatar.m_hp = my_packet->hp;
+			avatar.m_level = my_packet->level;
+			avatar.m_max_hp = my_packet->max_hp;
+			std::string stemplevel = "LV:";
+			stemplevel += std::to_string(avatar.m_level);
+			avatar.set_level(stemplevel.c_str());
+		}
+		else {
+			players[other_id].m_exp = my_packet->exp;
+			players[other_id].m_hp = my_packet->hp;
+			players[other_id].m_level = my_packet->level;
+			players[other_id].m_max_hp = my_packet->max_hp;
+
+			std::string stemplevel = "LV:";
+			stemplevel += std::to_string(players[other_id].m_level);
+			players[other_id].set_level(stemplevel.c_str());
+		
+		}
+		break;
+	}
 	case SC_LOGIN_FAIL: {
 		
 		exit(0);

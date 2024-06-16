@@ -153,6 +153,7 @@ struct SC_ATTACK_PACKET {
 struct SC_STAT_CHANGE_PACKET {
 	unsigned short size;
 	char	type;
+	int		id;
 	int		hp;
 	int		max_hp;
 	int		exp;

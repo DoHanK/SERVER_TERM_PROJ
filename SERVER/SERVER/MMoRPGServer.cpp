@@ -330,6 +330,7 @@ std::unordered_set<int> adjacentSector(int sectorid) {
 	std::unordered_set<int> adjectlist;
 
 
+
 	for (int y = -1; y < 2; ++y) {
 		for (int x = -1; x < 2; ++x) {
 			int mysector = sectorid;
@@ -337,7 +338,7 @@ std::unordered_set<int> adjacentSector(int sectorid) {
 			if (x == 0 && y == 0) continue;
 			//printf("인덱스: %d \n", sector);
 			if (sector >= 0 && sector < SECTOR_NUM::nSectorY * SECTOR_NUM::nSectorX) {
-
+	
 				adjectlist.insert(sector);
 			}
 		}
@@ -384,6 +385,33 @@ std::string GetJobString(int job) {
 
 	return "NONE";
 }
+
+int GetLevelMonsterString(int job) {
+	
+	if (WOMANZOMBIE == job) {
+		std::uniform_int_distribution<int> uid(20, 30);
+		return uid(rd);
+
+	}
+	if (MANZOMBIE == job) {
+		std::uniform_int_distribution<int> uid(40, 50);
+		return uid(rd);
+	};
+	if (DOG == job) {
+		std::uniform_int_distribution<int> uid(1, 15);
+		return uid(rd);
+	};
+	if (DINO == job) {
+		return 60;
+	};
+	if (CAT == job) {
+		std::uniform_int_distribution<int> uid(5, 15);
+		return uid(rd);
+	};
+
+
+}
+
 
 
 bool can_see(const SESSION& a, const SESSION& b)
@@ -671,7 +699,11 @@ void process_packet(int c_id, char* packet)
 		searchSectorID.insert(nowindex);
 
 		std::unordered_set<int> new_vl;
-
+		std::unordered_set<int> attackedplayer;
+		int mx = clients[c_id].m_x;
+		int my = clients[c_id].m_y;
+		int mdir = clients[c_id].m_dir;
+		int level = clients[c_id].m_level;
 		for (const auto& sectorID : searchSectorID) {
 
 			pSector[sectorID].m.lock();
@@ -681,12 +713,129 @@ void process_packet(int c_id, char* packet)
 			for (const auto& id : sectorPlayerID) {
 				if (clients[id].m_state != ST_INGAME) continue;
 				if (id == c_id) continue;
-				if (true == can_see(clients[id], clients[c_id]))
+				if (true == can_see(clients[id], clients[c_id])&&is_pc(id))
 					clients[id].Send_Attack_Packet(c_id);
+				//캐릭터 공격 범위
+				for (int i = 0; i < 3; i++) {
+					int cx = mx + mdir * i;
+					int cy = my;
+					if (clients[id].m_x == cx && clients[id].m_y == cy&& is_npc(id)) {
+						attackedplayer.insert(id);
+					}
+				}
+		
+				
 			}
 		}
 
-	
+		//데미지 감소 및 상태 변경 패킷 보내기.
+		for (const int& npcid : attackedplayer) {
+			auto& player = clients[npcid];
+			player.m_hp_lock.lock(); 
+			player.m_hp -= level * 50;
+			if (player.m_hp < 0) { //적이 죽었을때
+				player.m_hp = 100;
+				player.m_hp_lock.unlock();
+				//죽인 플레이어 경험치 주기
+				clients[c_id].m_exp += player.m_level * 10;
+				while (clients[c_id].m_exp> clients[c_id].m_level * 100) {
+
+					clients[c_id].m_exp -= clients[c_id].m_level * 100;
+					clients[c_id].m_level++;
+
+				}
+				clients[c_id].m_hp_lock.lock();
+				clients[c_id].m_hp = clients[c_id].m_level * 100;
+				clients[c_id].m_max_hp = clients[c_id].m_level * 100;
+				clients[c_id].m_hp_lock.unlock();
+				//상태 정보 보내기!
+				clients[c_id].Send_Change_State_Packet(clients[c_id]);
+				//내 뷰리스트에 친구들에게 알려주기
+				clients[c_id].m_view_lock.lock();
+				std::unordered_set<int> updateplayerview = clients[c_id].m_view_list;
+				clients[c_id].m_view_lock.unlock();
+				for (const int& i : updateplayerview) {
+					clients[i].Send_Change_State_Packet(clients[c_id]);
+				}
+				
+				std::uniform_int_distribution<int> uid(0, maploader.validnode.size());
+				int index = uid(rd);
+				int node = maploader.validnode[index];
+				//npc의 자리이동~ 전에 섹터에게 지워주기
+				int preindex = GetSectorIndex(player.m_x, player.m_y);
+				std::unordered_set<int> presearchSectorID = adjacentSector(preindex);
+				presearchSectorID.insert(preindex);
+				for (const auto& sectorID : presearchSectorID) {
+
+					pSector[sectorID].m.lock();
+					std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
+					pSector[sectorID].m.unlock();
+
+					for (const auto& seeid : sectorPlayerID) {
+						if (clients[seeid].m_state != ST_INGAME) continue;
+						if (seeid == npcid) continue;
+						if (true == can_see(clients[npcid], clients[seeid]) && is_pc(seeid)) {
+							clients[seeid].Send_Remove_Player_Packet(clients[npcid].m_id);
+						}
+					}
+				}
+
+				clients[npcid].m_x = node%W_WIDTH;
+				clients[npcid].m_y = node/W_WIDTH;
+				int nowindex = GetSectorIndex(clients[npcid].m_x, clients[npcid].m_y);
+				std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
+				searchSectorID.insert(nowindex);
+
+				if (preindex != nowindex) {
+					//과거 섹터에서 빼주기
+					pSector[preindex].PopPlayer(npcid);
+					//현재 섹터에 적용
+					pSector[nowindex].AddPlayer(npcid);
+
+				}
+				//현재 섹터에 추가하기
+				for (const auto& sectorID : searchSectorID) {
+
+					pSector[sectorID].m.lock();
+					std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
+					pSector[sectorID].m.unlock();
+
+					for (const auto& seeid : sectorPlayerID) {
+						if (clients[seeid].m_state != ST_INGAME) continue;
+						if (seeid == npcid) continue;
+						if (true == can_see(clients[npcid], clients[seeid]) && is_pc(seeid))
+							clients[seeid].Send_Add_Player_Packet(clients[npcid],false);
+
+					}
+				}
+
+
+
+
+			}
+			else {
+				//적이 죽지 않고 공격 받았을때 적 근처 플레이어에게 알려주기
+				player.m_hp_lock.unlock();
+				int nowindex = GetSectorIndex(clients[npcid].m_x, clients[npcid].m_y);
+				std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
+				searchSectorID.insert(nowindex);
+				for (const auto& sectorID : searchSectorID) {
+					pSector[sectorID].m.lock();
+					std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
+					pSector[sectorID].m.unlock();
+
+					for (const auto& seeid : sectorPlayerID) {
+						if (clients[seeid].m_state != ST_INGAME) continue;
+						if (seeid == npcid) continue;
+						if (true == can_see(clients[npcid], clients[seeid]) && is_pc(seeid))
+							clients[seeid].Send_Change_State_Packet(clients[npcid]);
+
+					}
+				}
+
+			}
+
+		}
 		break;
 	}
 	case CS_TELEPORT:{
@@ -783,7 +932,6 @@ void process_packet(int c_id, char* packet)
 	}
 }
 
-
 void InitializeNPC()
 {
 	std::uniform_int_distribution<int> uid(0, maploader.validnode.size());
@@ -800,14 +948,16 @@ void InitializeNPC()
 
 		clients[i].m_id = i;
 		//몬스터 이름 정해주기
-		int monkindnum = 3+rand() % 5;
-
+		std::uniform_int_distribution<int> uuid(3, 7);
+		int monkindnum = uuid(rd);
+		int level = GetLevelMonsterString(monkindnum);
 		clients[i].m_userid = "";
 		clients[i].m_userid+=GetJobString(monkindnum);
 		clients[i].m_visual = monkindnum;
-		clients[i].m_hp = 100;
-		clients[i].m_max_hp = 100;
-
+		clients[i].m_level = level;
+		clients[i].m_hp = level *100;
+		clients[i].m_max_hp = level *100;
+		clients[i].m_attack_damge = level *10;
 		clients[i].m_state = ST_INGAME;
 
 		auto L = clients[i]._L = luaL_newstate();

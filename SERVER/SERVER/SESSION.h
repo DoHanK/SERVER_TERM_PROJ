@@ -38,6 +38,7 @@ public:			//userinfo
 	std::string					m_userid;
 	int							m_visual;
 	short						m_x, m_y;
+	std::mutex					m_hp_lock;
 	int							m_hp;
 	int							m_max_hp;
 	int							m_attack_damge;
@@ -67,6 +68,8 @@ public:
 	void Send_Chat_Packet(int id, WCHAR mess[CHAT_SIZE]);
 
 	void Send_Attack_Packet(int  id);
+
+	void Send_Change_State_Packet(const SESSION& Player);
 };
 
 

@@ -64,6 +64,7 @@ void SESSION::Send_Add_Player_Packet(const SESSION& AddingPlayer,bool bmove)
 	p.dir = AddingPlayer.m_dir;
 	p.max_hp = AddingPlayer.m_max_hp;
 	p.hp = AddingPlayer.m_hp;
+	p.level = AddingPlayer.m_level;
 
 	if (bmove) {
 		p.state = WALK;
@@ -115,4 +116,19 @@ void SESSION::Send_Attack_Packet(int id)
 	p.id = id;
 
 	Send(&p);
+}
+
+void SESSION::Send_Change_State_Packet(const SESSION& Player)
+{
+	SC_STAT_CHANGE_PACKET p;
+	p.size = sizeof(SC_STAT_CHANGE_PACKET);
+	p.type = SC_STAT_CHANGE;
+	p.id = Player.m_id;
+	p.exp = Player.m_exp;
+	p.hp = Player.m_hp;
+	p.level = Player.m_level;
+	p.max_hp = Player.m_max_hp;
+
+	Send(&p);
+
 }
