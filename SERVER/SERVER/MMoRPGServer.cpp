@@ -2,7 +2,9 @@
 #include "OVER_EXP.h"
 #include "SESSION.h"
 #include "CELL.h"
+#include "MapInfoLoad.h"
 
+MapInfoLoad maploader;
 void process_packet(int c_id, char* packet);
 bool can_see(const SESSION& a, const SESSION& b);
 int get_new_client_id(std::array<SESSION, MAX_USER>& clients);
@@ -439,6 +441,10 @@ void process_packet(int c_id, char* packet)
 			x++; break;
 		}
 		}
+		//충돌처리
+		if (maploader.layer[1][y * W_WIDTH + x]) {
+			break;
+		}
 		//과거 섹터
 		int preindex = GetSectorIndex(clients[c_id].m_x, clients[c_id].m_y);
 		clients[c_id].m_x = x;
@@ -534,14 +540,107 @@ void process_packet(int c_id, char* packet)
 
 		break;
 	}
+	case CS_ATTACK: {
+		CS_CHAT_PACKET* p = reinterpret_cast<CS_CHAT_PACKET*>(packet);
+
+		std::wstring w(p->mess);
+		;
+		std::wcout << w << std::endl;
+
+		int nowindex = GetSectorIndex(clients[c_id].m_x, clients[c_id].m_y);
+		std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
+		searchSectorID = clipinglist(clients[c_id].m_x, clients[c_id].m_y, searchSectorID);
+		searchSectorID.insert(nowindex);
+
+		std::unordered_set<int> new_vl;
+
+		for (const auto& sectorID : searchSectorID) {
+
+			pSector[sectorID].m.lock();
+			std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
+			pSector[sectorID].m.unlock();
+
+			for (const auto& id : sectorPlayerID) {
+				if (clients[id].m_state != ST_INGAME) continue;
+				if (id == c_id) continue;
+				if (true == can_see(clients[id], clients[c_id]))
+					clients[id].Send_Attack_Packet(c_id);
+			}
+		}
+
+	
+		break;
+	}
+	case CS_TELEPORT:{
+
+		int select = rand() % maploader.validnode.size();
+		int x = select % 2000;
+		int y = select / 2000;
+		//과거 섹터
+		int preindex = GetSectorIndex(clients[c_id].m_x, clients[c_id].m_y);
+		clients[c_id].m_x = x;
+		clients[c_id].m_y = y;
+		//현재 섹터
+		int nowindex = GetSectorIndex(clients[c_id].m_x, clients[c_id].m_y);
+
+		if (preindex != nowindex) {
+			//과거 섹터에서 빼주기
+			pSector[preindex].PopPlayer(c_id);
+			//현재 섹터에 적용
+			pSector[nowindex].AddPlayer(c_id);
+
+		}
+		std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
+		searchSectorID = clipinglist(x, y, searchSectorID);
+		searchSectorID.insert(nowindex);
+		//뷰리스트 업데이트
+		clients[c_id].m_view_lock.lock();
+		std::unordered_set<int> old_vl = clients[c_id].m_view_list;
+		clients[c_id].m_view_lock.unlock();
+
+		std::unordered_set<int> new_vl;
+
+		for (const auto& sectorID : searchSectorID) {
+
+			pSector[sectorID].m.lock();
+			std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
+			pSector[sectorID].m.unlock();
+
+			for (const auto& id : sectorPlayerID) {
+				if (clients[id].m_state != ST_INGAME) continue;
+				if (id == c_id) continue;
+				if (true == can_see(clients[id], clients[c_id]))
+					new_vl.insert(clients[id].m_id);
+			}
+		}
+		clients[c_id].Send_Move_Packet(clients[c_id]);
+
+		clients[c_id].m_view_lock.lock();
+		clients[c_id].m_view_list = new_vl;
+		clients[c_id].m_view_lock.unlock();
+		// ADD_PLAYER
+		for (auto& cl : new_vl) {
+			if (0 == old_vl.count(cl)) {
+				clients[cl].Send_Add_Player_Packet(clients[c_id], true);
+				clients[c_id].Send_Add_Player_Packet(clients[cl], false);
+			}
+			else {
+				// MOVE_PLAYER
+				clients[cl].Send_Move_Packet(clients[c_id]);
+			}
+		}
+		// REMOVE_PLAYER
+		for (auto& cl : old_vl) {
+			if (0 == new_vl.count(cl)) {
+				clients[cl].Send_Remove_Player_Packet(c_id);
+				clients[c_id].Send_Remove_Player_Packet(cl);
+			}
+		}
+		break;
+		break;
+	}
 	}
 }
-
-
-
-
-
-
 
 
 int main() {
@@ -574,8 +673,9 @@ int main() {
 			}
 		}
 	}
-
-
+	std::cout << "맵 로드시작.." << std::endl;
+	maploader.Load_Map_info();
+	std::cout << "맵 로드 끝 .." << std::endl;
 
 
 

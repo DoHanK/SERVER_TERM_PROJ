@@ -257,7 +257,7 @@ public:
 				layer[layer_index].push_back(integer);
 				sinteger = "";
 				count++;
-				if (count > W_WIDTH * W_HEIGHT) {
+				if (count >= W_WIDTH * W_HEIGHT) {
 					layer_index++;
 					count = 0;
 
@@ -673,8 +673,8 @@ void ProcessPacket(char* ptr)
 		g_left_x = packet->x - SCREEN_WIDTH / 2;
 		g_top_y = packet->y - SCREEN_HEIGHT / 2;
 		avatar.show();
-	}
 	break;
+	}
 	case SC_ADD_OBJECT:
 	{
 		SC_ADD_OBJECT_PACKET* my_packet = reinterpret_cast<SC_ADD_OBJECT_PACKET*>(ptr);
@@ -725,7 +725,6 @@ void ProcessPacket(char* ptr)
 		}
 		break;
 	}
-
 	case SC_REMOVE_OBJECT:
 	{
 		SC_REMOVE_OBJECT_PACKET* my_packet = reinterpret_cast<SC_REMOVE_OBJECT_PACKET*>(ptr);
@@ -751,6 +750,12 @@ void ProcessPacket(char* ptr)
 			
 		}
 
+		break;
+	}
+	case SC_ATTACK: {
+		SC_ATTACK_PACKET* my_packet = reinterpret_cast<SC_ATTACK_PACKET*>(ptr);
+		int other_id = my_packet->id;
+		players[other_id].m_state = ATTACK;
 		break;
 	}
 	case SC_LOGIN_FAIL: {
@@ -878,6 +883,14 @@ int main()
 		 pretime = nowtime;
 		 
 
+		 //텔레포트 보내기
+		 if (UImanger->btelselectmode) {
+			 CS_TELEPORT_PACKET p;
+			 p.size = sizeof(CS_TELEPORT_PACKET);
+			 p.type = CS_TELEPORT;
+			 send_packet(&p);
+			 UImanger->btelselectmode = false;
+		 }
 		 
 
 		sf::Event event;
@@ -969,8 +982,10 @@ int main()
 					direction = 1;
 					break;
 				case sf::Keyboard::LControl:
-					CS_MOVE_PACKET p;
-
+					CS_ATTACK_PACKET p;
+					p.size = sizeof(p);
+					p.type = CS_ATTACK;
+					send_packet(&p);
 					avatar.m_state = ATTACK;
 					break;
 

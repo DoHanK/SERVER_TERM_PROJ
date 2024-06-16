@@ -105,3 +105,14 @@ void SESSION::Send_Chat_Packet(int id, WCHAR mess[CHAT_SIZE])
 	Send(&p);
 
 }
+
+void SESSION::Send_Attack_Packet(int id)
+{
+
+	SC_ATTACK_PACKET p;
+	p.size = sizeof(SC_ATTACK_PACKET);
+	p.type = SC_ATTACK;
+	p.id = id;
+
+	Send(&p);
+}

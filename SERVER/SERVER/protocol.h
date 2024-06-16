@@ -51,6 +51,7 @@ constexpr char SC_REMOVE_OBJECT = 5;
 constexpr char SC_MOVE_OBJECT = 6;
 constexpr char SC_CHAT = 7;
 constexpr char SC_STAT_CHANGE = 8;
+constexpr char SC_ATTACK = 9;
 
 #pragma pack (push, 1)
 struct CS_LOGIN_PACKET {
@@ -71,6 +72,11 @@ struct CS_CHAT_PACKET {
 	unsigned short size;			// 크기가 가변이다, mess가 작으면 size도 줄이자.
 	char	type;
 	WCHAR	mess[CHAT_SIZE];
+};
+
+struct CS_ATTACK_PACKET {
+	unsigned short size;			// 크기가 가변이다, mess가 작으면 size도 줄이자.
+	char	type;
 };
 
 struct CS_TELEPORT_PACKET {			// 랜덤으로 텔레포트 하는 패킷, 동접 테스트에 필요
@@ -136,6 +142,12 @@ struct SC_CHAT_PACKET {
 struct SC_LOGIN_FAIL_PACKET {
 	unsigned short size;
 	char	type;
+};
+
+struct SC_ATTACK_PACKET {
+	unsigned short size;
+	char	type;
+	int		id;
 };
 
 struct SC_STAT_CHANGE_PACKET {

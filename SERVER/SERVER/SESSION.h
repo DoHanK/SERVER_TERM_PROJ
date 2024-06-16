@@ -64,4 +64,6 @@ public:
 	void Send_Remove_Player_Packet(int id);
 
 	void Send_Chat_Packet(int id, WCHAR mess[CHAT_SIZE]);
+
+	void Send_Attack_Packet(int  id);
 };

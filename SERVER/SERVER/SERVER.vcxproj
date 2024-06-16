@@ -132,6 +132,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="CELL.cpp" />
+    <ClCompile Include="MapInfoLoad.cpp" />
     <ClCompile Include="MMoRPGServer.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">false</ExcludedFromBuild>
@@ -144,6 +145,7 @@
   <ItemGroup>
     <ClInclude Include="CELL.h" />
     <ClInclude Include="ConnectData.h" />
+    <ClInclude Include="MapInfoLoad.h" />
     <ClInclude Include="OVER_EXP.h" />
     <ClInclude Include="protocol.h" />
     <ClInclude Include="SESSION.h" />
