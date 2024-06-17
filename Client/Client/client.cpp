@@ -135,6 +135,7 @@ protected:
 	sf::Text m_name;
 	sf::Text m_chat;
 	sf::Text m_LV;
+
 	chrono::system_clock::time_point m_mess_end_time;
 public:
 	int id;
@@ -167,16 +168,13 @@ public:
 	{
 		m_showing = false;
 	}
-
 	void a_move(int x, int y) {
 		m_sprite.setPosition((float)x, (float)y);
 
 	}
-
 	void a_draw() {
 		g_window->draw(m_sprite);
 	}
-
 	void move(int x, int y) {
 		m_x = x;
 		m_y = y;
@@ -204,7 +202,6 @@ public:
 		else m_name.setFillColor(sf::Color(255, 0, 0));
 		m_name.setStyle(sf::Text::Bold);
 	}
-	
 	void set_name(const WCHAR str[]) {
 		m_name.setFont(g_fhangle);
 		m_name.setString(str);
@@ -219,7 +216,6 @@ public:
 		else m_LV.setFillColor(sf::Color(255, 0, 0));
 		m_LV.setStyle(sf::Text::Bold);
 	}
-
 	void set_chat(const char str[]) {
 		m_chat.setFont(g_font);
 		m_chat.setString(str);
@@ -234,6 +230,10 @@ public:
 		m_chat.setStyle(sf::Text::Bold);
 		m_mess_end_time = chrono::system_clock::now() + chrono::seconds(3);
 	}
+
+
+
+
 
 };
 
@@ -482,7 +482,6 @@ public:
 	int m_exp = 0;
 	int m_attack = 0;
 	int m_level = 0;
-	
 
 	CHARECTOR() {};
 	CHARECTOR(int x, int y, int x2, int y2, int job) {
@@ -665,6 +664,12 @@ public:
 		select,
 		stateend
 	};
+	enum battlestate {
+		exp,
+		hp,
+		level,
+		battlestateend,
+	};
 
 	CHARECTOR* Owner;
 	int w_window_height = 1050;
@@ -690,7 +695,11 @@ public:
 
 	sf::Text exp_display;
 	sf::Texture* m_exptexture[3];
-	sf::Sprite m_expImg[3];
+	sf::Sprite m_expImg[4];
+
+	sf::Text battlemsg[battlestateend];
+	chrono::system_clock::time_point battlemsg_end_time[battlestateend];
+
 	UIManager(sf::RenderWindow* g_window) {
 		m_pwindow = g_window;
 
@@ -821,7 +830,6 @@ public:
 
 	}
 
-
 	void Draw() {
 		m_pwindow->draw(m_expImg[2]);
 		if (bChattingmode) {
@@ -877,9 +885,67 @@ public:
 
 	}
 
+	void Updatebattle(int state, float dxmess) {
+		if (state == exp) {
+			if (dxmess>0) {
+				std::wstring str = L"경험치를 ";
+				str += std::to_wstring(dxmess);
+				str += L"만큼 얻었습니다.";
+				battlemsg[exp].setFont(g_fhangle);
+				battlemsg[exp].setString(str);
+				battlemsg[exp].setFillColor(sf::Color(0, 0, 0));
+				battlemsg[exp].setStyle(sf::Text::Bold);
+				battlemsg_end_time[exp] = chrono::system_clock::now() + chrono::seconds(3);
+			}
+			else {
+				std::wstring str = L"잠시 정신을 잃고야 말았습니다. \n 경험치를 ";
+				str += std::to_wstring(dxmess);
+				str += L"만큼 잃었습니다.";
+				battlemsg[exp].setFont(g_fhangle);
+				battlemsg[exp].setString(str);
+				battlemsg[exp].setFillColor(sf::Color(0, 0, 0));
+				battlemsg[exp].setStyle(sf::Text::Bold);
+				battlemsg_end_time[exp] = chrono::system_clock::now() + chrono::seconds(3);
+			}
+
+		}
+		else if (state == level) {
+			std::wstring str = L"레벨이 ";
+			str += std::to_wstring(dxmess);
+			str += L"만큼 올랐습니다.";
+			battlemsg[level].setFont(g_fhangle);
+			battlemsg[level].setString(str);
+			battlemsg[level].setFillColor(sf::Color(0, 0, 0));
+			battlemsg[level].setStyle(sf::Text::Bold);
+			battlemsg_end_time[level] = chrono::system_clock::now() + chrono::seconds(3);
+
+		}
+		else if (state == hp) {
+			if (dxmess > 0) {
+				std::wstring str = L"체력이 ";
+				str += std::to_wstring(dxmess);
+				str += L"를 얻었습니다.";
+				battlemsg[hp].setFont(g_fhangle);
+				battlemsg[hp].setString(str);
+				battlemsg[hp].setFillColor(sf::Color(0, 0, 0));
+				battlemsg[hp].setStyle(sf::Text::Bold);
+				battlemsg_end_time[hp] = chrono::system_clock::now() + chrono::seconds(3);
+
+			}
+			else {
+				std::wstring str = L"체력이 ";
+				str += std::to_wstring(dxmess);
+				str += L"를 잃었습니다.";
+				battlemsg[hp].setFont(g_fhangle);
+				battlemsg[hp].setString(str);
+				battlemsg[hp].setFillColor(sf::Color(0, 0, 0));
+				battlemsg[hp].setStyle(sf::Text::Bold);
+				battlemsg_end_time[hp] = chrono::system_clock::now() + chrono::seconds(3);
+			}
+		}
 
 
-
+	}
 };
 
 void client_initialize(){
@@ -1038,6 +1104,15 @@ void ProcessPacket(char* ptr)
 		SC_STAT_CHANGE_PACKET* my_packet = reinterpret_cast<SC_STAT_CHANGE_PACKET*>(ptr);
 		int other_id = my_packet->id;
 		if (other_id == g_myid) {
+			float dxexp = my_packet->exp- avatar.m_exp ;
+			float dxhp	= my_packet->hp - avatar.m_hp ;
+			float dxlevel=	my_packet->level - avatar.m_level;
+
+			UImanger->Updatebattle(UIManager::exp, dxexp);
+			if(dxexp>=0) UImanger->Updatebattle(UIManager::hp, dxhp);
+			UImanger->Updatebattle(UIManager::level, dxlevel);
+
+
 			avatar.m_exp = my_packet->exp;
 			avatar.m_hp = my_packet->hp;
 			avatar.m_level = my_packet->level;

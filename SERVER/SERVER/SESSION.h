@@ -42,13 +42,14 @@ public:			//userinfo
 	int							m_hp;
 	int							m_max_hp;
 	int							m_attack_damge;
+	std::mutex					m_exp_lock;
 	int							m_exp;
 	int							m_level;
 	int							m_dir;
 public:
 	lua_State* _L;
 	std::atomic_bool	_is_active;		// 주위에 플레이어가 있는가?
-
+	int					m_ai_target_obj;
 public: 
 	// func for Data Communication
 

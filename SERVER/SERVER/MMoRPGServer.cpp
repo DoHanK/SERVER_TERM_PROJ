@@ -15,6 +15,7 @@ void disconnect(int c_id, std::array<SESSION, MAX_USER+MAX_NPC>& clients);
 int GetSectorIndex(const int& x, const int& y);
 std::string GetJobString(int job);
 void WakeUpNPC(int npc_id, int waker);
+void do_npc_random_move(int npc_id);
 bool is_pc(int object_id)
 {
 	return object_id < MAX_USER;
@@ -527,9 +528,53 @@ void worker_thread(HANDLE h_iocp)
 			clients[key].Recv();
 			break;
 		}
-		case OP_SEND:
+		case OP_SEND: {
 			delete ex_over;
 			break;
+		}
+		case OP_NPC_MOVE: {
+			bool keep_alive = false;
+
+			int sectorindex = GetSectorIndex(clients[key].m_x, clients[key].m_y);
+
+
+
+
+			std::unordered_set<int> searchSectorID = adjacentSector(sectorindex);
+			searchSectorID = clipinglist(clients[key].m_x, clients[key].m_y, searchSectorID);
+			searchSectorID.insert(sectorindex);
+
+			for (const auto& sectorID : searchSectorID) {
+
+				pSector[sectorID].m.lock();
+				std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
+				pSector[sectorID].m.unlock();
+
+				for (auto id : sectorPlayerID) {
+					if (clients[id].m_state != ST_INGAME) continue;
+					if (is_pc(id)) {
+						if (can_see(clients[static_cast<int>(key)], clients[id])) {
+							keep_alive = true;
+							break;
+						}
+					}
+				}
+
+
+
+			}
+			
+			if (true == keep_alive) {
+				do_npc_random_move(static_cast<int>(key));
+				TIMER_EVENT ev{ key, std::chrono::system_clock::now() + std::chrono::seconds(1), EV_RANDOM_MOVE, 0 };
+				timer_queue.push(ev);
+			}
+			else {
+				clients[key]._is_active = false;
+			}
+			delete ex_over;
+		}
+						break;
 		}
 	}
 }
@@ -737,17 +782,23 @@ void process_packet(int c_id, char* packet)
 				player.m_hp = 100;
 				player.m_hp_lock.unlock();
 				//죽인 플레이어 경험치 주기
+				clients[c_id].m_exp_lock.lock();
 				clients[c_id].m_exp += player.m_level * 10;
+				int islevelup = 0;
 				while (clients[c_id].m_exp> clients[c_id].m_level * 100) {
 
 					clients[c_id].m_exp -= clients[c_id].m_level * 100;
 					clients[c_id].m_level++;
-
+					islevelup++;
 				}
-				clients[c_id].m_hp_lock.lock();
-				clients[c_id].m_hp = clients[c_id].m_level * 100;
-				clients[c_id].m_max_hp = clients[c_id].m_level * 100;
-				clients[c_id].m_hp_lock.unlock();
+				clients[c_id].m_exp_lock.unlock();
+
+				if (islevelup > 0) {
+					clients[c_id].m_hp_lock.lock();
+					clients[c_id].m_hp = clients[c_id].m_level * 100;
+					clients[c_id].m_max_hp = clients[c_id].m_level * 100;
+					clients[c_id].m_hp_lock.unlock();
+				}
 				//상태 정보 보내기!
 				clients[c_id].Send_Change_State_Packet(clients[c_id]);
 				//내 뷰리스트에 친구들에게 알려주기
@@ -982,6 +1033,7 @@ void WakeUpNPC(int npc_id, int waker)
 	OVER_EXP* exover = new OVER_EXP;
 	exover->_comp_type = OP_AI_HELLO;
 	exover->_ai_target_obj = waker;
+	clients[npc_id].m_ai_target_obj = waker;
 	PostQueuedCompletionStatus(g_h_iocp, 1, npc_id, &exover->_over);
 
 	if (clients[npc_id]._is_active) return;
@@ -1015,6 +1067,245 @@ void do_timer()
 			continue;		// 즉시 다음 작업 꺼내기
 		}
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));    // timer_queue가 비어 있으니 잠시 기다렸다가 다시 시작
+	}
+}
+
+void do_npc_random_move(int npc_id)
+{
+	SESSION& npc = clients[npc_id];
+	std::unordered_set<int> old_vl;
+
+	int x = npc.m_x;
+	int y = npc.m_y;
+
+	switch (rand() % 4) {
+	case 0: if (y > 0) y--; break;
+	case 1: if (y < W_HEIGHT - 1) y++; break;
+	case 2: if (x > 0) {
+		clients[npc_id].m_dir = -1;
+		x--; break;
+
+	}
+	case 3: if (x < W_WIDTH - 1) {
+		clients[npc_id].m_dir = 1;
+		x++; break;
+	}
+	}
+
+
+	if (maploader.layer[1][y * W_WIDTH + x]) {
+
+	}
+	else {
+		npc.m_x = x;
+		npc.m_y = y;
+	}
+
+	bool isattacked = false;
+	int attackobjID = clients[npc_id].m_ai_target_obj;
+	//캐릭터 공격 범위
+	for (int y = -2; y < 3; y++) {
+		for (int x = 0; x < 3; x++) {
+			int cx = clients[npc_id].m_x + clients[npc_id].m_dir * x;
+			int cy = clients[npc_id].m_y + y;
+		
+			if (x == 0) continue;
+
+			if (clients[attackobjID].m_x == cx && clients[attackobjID].m_y == cy && is_pc(attackobjID)) {
+				isattacked = true;
+			}
+		}
+	}
+	//과거 섹터
+	int preindex = GetSectorIndex(npc.m_x, npc.m_y);
+
+
+	//현재 섹터
+	int nowindex = GetSectorIndex(npc.m_x, npc.m_y);
+
+	if (preindex != nowindex) {
+		//과거 섹터에서 빼주기
+		pSector[preindex].PopPlayer(npc_id);
+		//현재 섹터에 적용
+		pSector[nowindex].AddPlayer(npc_id);
+
+	}
+	std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
+	searchSectorID = clipinglist(x, y, searchSectorID);
+	searchSectorID.insert(nowindex);
+	//뷰리스트 업데이트
+	clients[npc_id].m_view_lock.lock();
+	old_vl = clients[npc_id].m_view_list;
+	clients[npc_id].m_view_lock.unlock();
+
+	std::unordered_set<int> new_vl;
+
+	for (const auto& sectorID : searchSectorID) {
+
+		pSector[sectorID].m.lock();
+		std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
+		pSector[sectorID].m.unlock();
+
+		for (const auto& id : sectorPlayerID) {
+			if (clients[id].m_state != ST_INGAME) continue;
+			if (id == npc_id) continue;
+			if (true == can_see(clients[id], clients[npc_id]))
+				new_vl.insert(clients[id].m_id);
+		}
+	}
+
+
+	for (auto pl : new_vl) {
+		if (0 == old_vl.count(pl)) {
+			// 플레이어의 시야에 등장
+			clients[pl].Send_Add_Player_Packet(npc, true);
+		}
+		else {
+			// 플레이어가 계속 보고 있음.
+			clients[pl].Send_Move_Packet(npc);
+		}
+	}
+
+	for (auto pl : old_vl) {
+		if (0 == new_vl.count(pl)) {
+			clients[pl].m_view_lock.lock();
+			if (0 != clients[pl].m_view_list.count(npc.m_id)) {
+				clients[pl].m_view_lock.unlock();
+				clients[pl].Send_Remove_Player_Packet(npc.m_id);
+			}
+			else {
+				clients[pl].m_view_lock.unlock();
+			}
+		}
+	}
+
+	clients[npc_id].m_view_lock.lock();
+	clients[npc_id].m_view_list = new_vl;
+	clients[npc_id].m_view_lock.unlock();
+
+	//공격받은 플레이어 데미지 계산 및 패킷 계산
+	int attackdamage = clients[npc_id].m_level;
+
+	if (isattacked) {
+		std::cout << attackobjID << "가" << "공격 받았습니다." << std::endl;
+		clients[attackobjID].m_hp_lock.lock();
+		clients[attackobjID].m_hp -= attackdamage;
+		clients[attackobjID].m_hp_lock.unlock();
+
+		if (clients[attackobjID].m_hp < 0) { //체력이 0이라면?
+			clients[attackobjID].m_hp_lock.lock();
+			clients[attackobjID].m_hp = clients[attackobjID].m_level * 100;
+			clients[attackobjID].m_hp_lock.unlock();
+			//exp감소
+			clients[attackobjID].m_exp_lock.lock();
+			clients[attackobjID].m_exp /= 2;
+			clients[attackobjID].m_exp_lock.unlock();
+			clients[attackobjID].Send_Change_State_Packet(clients[attackobjID]);
+			//자리이동
+			std::uniform_int_distribution<int> uid(0, maploader.validnode.size());
+			int select = uid(rd);
+			int x = select % 2000;
+			int y = select / 2000;
+			//과거 섹터
+			int preindex = GetSectorIndex(clients[attackobjID].m_x, clients[attackobjID].m_y);
+			clients[attackobjID].m_x = x;
+			clients[attackobjID].m_y = y;
+			//현재 섹터
+			int nowindex = GetSectorIndex(clients[attackobjID].m_x, clients[attackobjID].m_y);
+
+			if (preindex != nowindex) {
+				//과거 섹터에서 빼주기
+				pSector[preindex].PopPlayer(attackobjID);
+				//현재 섹터에 적용
+				pSector[nowindex].AddPlayer(attackobjID);
+
+			}
+			std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
+			searchSectorID = clipinglist(x, y, searchSectorID);
+			searchSectorID.insert(nowindex);
+			//뷰리스트 업데이트
+			clients[attackobjID].m_view_lock.lock();
+			std::unordered_set<int> old_vl = clients[attackobjID].m_view_list;
+			clients[attackobjID].m_view_lock.unlock();
+
+			std::unordered_set<int> new_vl;
+
+			for (const auto& sectorID : searchSectorID) {
+
+				pSector[sectorID].m.lock();
+				std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
+				pSector[sectorID].m.unlock();
+
+				for (const auto& id : sectorPlayerID) {
+					if (clients[id].m_state != ST_INGAME) continue;
+					if (id == attackobjID) continue;
+					if (true == can_see(clients[id], clients[attackobjID]))
+						new_vl.insert(clients[id].m_id);
+				}
+			}
+			clients[attackobjID].Send_Move_Packet(clients[attackobjID]);
+
+			// ADD_PLAYER
+			for (auto& cl : new_vl) {
+
+				auto& cpl = clients[cl];
+				if (is_pc(cl)) {
+					cpl.m_view_lock.lock();
+
+					if (0 != clients[cl].m_view_list.count(attackobjID)) {
+						cpl.m_view_lock.unlock();
+
+						clients[cl].Send_Move_Packet(clients[attackobjID]);
+					}
+					else {
+						cpl.m_view_list.insert(attackobjID);
+						cpl.m_view_lock.unlock();
+
+						clients[cl].Send_Add_Player_Packet(clients[attackobjID], true);
+					}
+				}
+				else WakeUpNPC(cl, attackobjID);
+
+				if (old_vl.count(cl) == 0)
+					clients[attackobjID].Send_Add_Player_Packet(clients[cl], false);
+			}
+			// REMOVE_PLAYER
+			for (auto& cl : old_vl) {
+				if (0 == new_vl.count(cl)) {
+
+					clients[attackobjID].Send_Remove_Player_Packet(cl);
+
+					if (is_pc(cl)) {
+						clients[cl].m_view_lock.lock();
+						clients[cl].m_view_list.erase(attackobjID);
+						clients[cl].m_view_lock.unlock();
+						clients[cl].Send_Remove_Player_Packet(attackobjID);
+
+					}
+				}
+			}
+
+			clients[attackobjID].m_view_lock.lock();
+			clients[attackobjID].m_view_list = new_vl;
+			clients[attackobjID].m_view_lock.unlock();
+
+
+		}
+		else {
+
+			//상태 정보 보내기!
+			clients[attackobjID].Send_Change_State_Packet(clients[attackobjID]);
+			clients[attackobjID].Send_Attack_Packet(npc_id);
+			//내 뷰리스트에 친구들에게 알려주기
+			clients[attackobjID].m_view_lock.lock();
+			std::unordered_set<int> updateplayerview = clients[attackobjID].m_view_list;
+			clients[attackobjID].m_view_lock.unlock();
+			for (const int& i : updateplayerview) {
+				clients[i].Send_Change_State_Packet(clients[attackobjID]);
+				clients[i].Send_Attack_Packet(npc_id);
+			}
+
+		}
 	}
 }
 
