@@ -7,7 +7,7 @@
 
 MapInfoLoad maploader;
 std::random_device rd;
-
+lua_State* g_L;
 void process_packet(int c_id, char* packet);
 bool can_see(const SESSION& a, const SESSION& b);
 int get_new_client_id(std::array<SESSION, MAX_USER>& clients);
@@ -176,48 +176,7 @@ void ConnectDataBase() {
 									}
 									else if (retcode == SQL_NO_DATA && i == 0) {
 										//데이터가 없으면??
-										srand(time(0));
-										clients[GetOpNId.first].m_userid = GetOpNId.second.second;
-										std::cout << "입장" << clients[GetOpNId.first].m_userid << std::endl;
-							
-										clients[GetOpNId.first].m_visual = rand()%3;
-										clients[GetOpNId.first].m_max_hp = 100;
-										clients[GetOpNId.first].m_hp = 100;
-										clients[GetOpNId.first].m_exp = 0;
-										clients[GetOpNId.first].m_attack_damge = 10;
-										clients[GetOpNId.first].m_level = 1;
-										clients[GetOpNId.first].m_x = rand()% W_WIDTH;
-										clients[GetOpNId.first].m_y = rand() % W_HEIGHT;
-
-										int sectornum = GetSectorIndex(clients[GetOpNId.first].m_x, clients[GetOpNId.first].m_y);
-
-										pSector[sectornum].AddPlayer(GetOpNId.first);
-
-										clients[GetOpNId.first].Send_Login_Info_Packet();
-										{
-											std::lock_guard<std::mutex> ll{ clients[GetOpNId.first].m_socket_lock };
-											clients[GetOpNId.first].m_state = ST_INGAME;
-										}
-
-										for (auto& pl : clients) {
-											{
-												std::lock_guard<std::mutex> ll(pl.m_socket_lock);
-												if (ST_INGAME != pl.m_state) continue;
-											}
-											if (pl.m_id == GetOpNId.first) continue;
-											if (false == can_see(clients[GetOpNId.first], clients[pl.m_id]))
-												continue;
-											if (is_pc(pl.m_id)) pl.Send_Add_Player_Packet(clients[GetOpNId.first], false);
-											else WakeUpNPC(pl.m_id, GetOpNId.first);
-											clients[GetOpNId.first].Send_Add_Player_Packet(clients[pl.m_id], false);
-										}
-					/*					char* name = new char[NAME_SIZE];
-										memcpy(name, clients[GetOpNId.first].m_userid.c_str(), NAME_SIZE);*/
-										//QueryLock.lock();
-										//QueryQueue.push({ clients[GetOpNId.first].m_id, {  , name} });
-										//QueryLock.unlock();
-
-										//std::cout << "퇴장" << clients[GetOpNId.first].m_userid << std::endl;
+										
 
 										break;
 									}
@@ -262,7 +221,7 @@ void ConnectDataBase() {
 							cmd += std::to_wstring(clients[GetOpNId.first].m_y);
 							retcode = SQLExecDirect(hstmt, (SQLWCHAR*)cmd.c_str(), SQL_NTS);
 
-
+							delete  GetOpNId.second.second;
 						}
 
 						else if (GetOpNId.second.first == OP_CRAETE_ID) {
@@ -586,9 +545,74 @@ void process_packet(int c_id, char* packet)
 		CS_LOGIN_PACKET* p = reinterpret_cast<CS_LOGIN_PACKET*>(packet);
 		char* name = new char[NAME_SIZE];
 		memcpy(name, p->userid, NAME_SIZE);
-		QueryLock.lock();
-		QueryQueue.push({ c_id, { OP_GETINFO ,name } });
-		QueryLock.unlock();
+		std::string testai = p->userid;
+		for (int i = 0; i < MAX_USER; ++i) {
+			if (clients[i].m_userid == testai) {
+				clients[c_id].Send_Fali_Login_Packet();
+				return;
+			}
+		}
+		
+		int count = 0;
+		for (auto ch : testai) {
+			if (-1 < ch - '0' && ch - '0' < 10) {
+				count++;
+			}
+			else continue;
+		}
+		if (count == testai.size()) { 
+			//AI임
+			
+			clients[c_id].m_userid = testai;
+			std::uniform_int_distribution<int> uuid(0, 3);
+			int monkindnum = uuid(rd);
+			clients[c_id].m_visual = monkindnum;
+			clients[c_id].m_max_hp = INT_MAX;
+			clients[c_id].m_hp = INT_MAX;
+			clients[c_id].m_exp = 0;
+			clients[c_id].m_attack_damge = 10;
+			clients[c_id].m_level = INT_MAX;
+			clients[c_id].m_x = rand() % W_WIDTH;
+			clients[c_id].m_y = rand() % W_HEIGHT;
+
+			int sectornum = GetSectorIndex(clients[c_id].m_x, clients[c_id].m_y);
+
+			pSector[sectornum].AddPlayer(c_id);
+
+			clients[c_id].Send_Login_Info_Packet();
+			{
+				std::lock_guard<std::mutex> ll{ clients[c_id].m_socket_lock };
+				clients[c_id].m_state = ST_INGAME;
+			}
+
+			for (auto& pl : clients) {
+				{
+					std::lock_guard<std::mutex> ll(pl.m_socket_lock);
+					if (ST_INGAME != pl.m_state) continue;
+				}
+				if (pl.m_id == c_id) continue;
+				if (false == can_see(clients[c_id], clients[pl.m_id]))
+					continue;
+				if (is_pc(pl.m_id)) pl.Send_Add_Player_Packet(clients[c_id], false);
+				else WakeUpNPC(pl.m_id, c_id);
+				clients[c_id].Send_Add_Player_Packet(clients[pl.m_id], false);
+			}
+	
+
+			delete name;
+		}
+		else {
+			QueryLock.lock();
+			QueryQueue.push({ c_id, { OP_GETINFO ,name } });
+			QueryLock.unlock();
+
+		}
+		TIMER_EVENT ev;
+		ev.event_id = EV_HP_UP;
+		ev.obj_id = c_id;
+		ev.wakeup_time = std::chrono::system_clock::now() + std::chrono::seconds(5);
+		timer_queue.push(ev);
+
 		break;
 		
 	}
@@ -710,52 +734,30 @@ void process_packet(int c_id, char* packet)
 	;
 		std::wcout << w << std::endl;
 
-		int nowindex = GetSectorIndex(clients[c_id].m_x, clients[c_id].m_y);
-		std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
-		searchSectorID = clipinglist(clients[c_id].m_x, clients[c_id].m_y, searchSectorID);
-		searchSectorID.insert(nowindex);
-
-		std::unordered_set<int> new_vl;
-
-		for (const auto& sectorID : searchSectorID) {
-
-			pSector[sectorID].m.lock();
-			std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
-			pSector[sectorID].m.unlock();
-
-			for (const auto& id : sectorPlayerID) {
+		clients[c_id].m_view_lock.lock();
+		std::unordered_set<int> vl = clients[c_id].m_view_list;
+		clients[c_id].m_view_lock.unlock();
+		for (const auto& id : vl) {
 				if (clients[id].m_state != ST_INGAME) continue;
 				if (id == c_id) continue;
-				if (true == can_see(clients[id], clients[c_id]))
+				if (true == can_see(clients[id], clients[c_id])&&is_pc(id))
 					clients[id].Send_Chat_Packet(c_id, p->mess);
-			}
 		}
-
-
-
-
 		break;
 	}
 	case CS_ATTACK: {
 
-		int nowindex = GetSectorIndex(clients[c_id].m_x, clients[c_id].m_y);
-		std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
-		searchSectorID = clipinglist(clients[c_id].m_x, clients[c_id].m_y, searchSectorID);
-		searchSectorID.insert(nowindex);
-
-		std::unordered_set<int> new_vl;
 		std::unordered_set<int> attackedplayer;
 		int mx = clients[c_id].m_x;
 		int my = clients[c_id].m_y;
 		int mdir = clients[c_id].m_dir;
 		int level = clients[c_id].m_level;
-		for (const auto& sectorID : searchSectorID) {
 
-			pSector[sectorID].m.lock();
-			std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
-			pSector[sectorID].m.unlock();
+		clients[c_id].m_view_lock.lock();
+		std::unordered_set<int> new_vl = clients[c_id].m_view_list;
+		clients[c_id].m_view_lock.unlock();
 
-			for (const auto& id : sectorPlayerID) {
+			for (const auto& id : new_vl) {
 				if (clients[id].m_state != ST_INGAME) continue;
 				if (id == c_id) continue;
 				if (true == can_see(clients[id], clients[c_id])&&is_pc(id))
@@ -771,12 +773,14 @@ void process_packet(int c_id, char* packet)
 		
 				
 			}
-		}
+		
 
 		//데미지 감소 및 상태 변경 패킷 보내기.
 		for (const int& npcid : attackedplayer) {
 			auto& player = clients[npcid];
+
 			player.m_hp_lock.lock(); 
+
 			player.m_hp -= level * 50;
 			if (player.m_hp < 0) { //적이 죽었을때
 				player.m_hp = 100;
@@ -802,16 +806,17 @@ void process_packet(int c_id, char* packet)
 				//상태 정보 보내기!
 				clients[c_id].Send_Change_State_Packet(clients[c_id]);
 				//내 뷰리스트에 친구들에게 알려주기
-				clients[c_id].m_view_lock.lock();
-				std::unordered_set<int> updateplayerview = clients[c_id].m_view_list;
-				clients[c_id].m_view_lock.unlock();
-				for (const int& i : updateplayerview) {
-					clients[i].Send_Change_State_Packet(clients[c_id]);
+		
+
+				for (const int& i : new_vl) {
+					if(is_pc(i)) clients[i].Send_Change_State_Packet(clients[c_id]);
 				}
 				
+
 				std::uniform_int_distribution<int> uid(0, maploader.validnode.size());
 				int index = uid(rd);
 				int node = maploader.validnode[index];
+
 				//npc의 자리이동~ 전에 섹터에게 지워주기
 				int preindex = GetSectorIndex(player.m_x, player.m_y);
 				std::unordered_set<int> presearchSectorID = adjacentSector(preindex);
@@ -865,29 +870,24 @@ void process_packet(int c_id, char* packet)
 
 			}
 			else {
-				//적이 죽지 않고 공격 받았을때 적 근처 플레이어에게 알려주기
 				player.m_hp_lock.unlock();
-				int nowindex = GetSectorIndex(clients[npcid].m_x, clients[npcid].m_y);
-				std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
-				searchSectorID.insert(nowindex);
-				for (const auto& sectorID : searchSectorID) {
-					pSector[sectorID].m.lock();
-					std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
-					pSector[sectorID].m.unlock();
 
-					for (const auto& seeid : sectorPlayerID) {
+				//적이 죽지 않고 공격 받았을때 적 근처 플레이어에게 알려주기
+			
+					for (const auto& seeid : new_vl) {
 						if (clients[seeid].m_state != ST_INGAME) continue;
 						if (seeid == npcid) continue;
 						if (true == can_see(clients[npcid], clients[seeid]) && is_pc(seeid))
 							clients[seeid].Send_Change_State_Packet(clients[npcid]);
 
 					}
-				}
+				
 
 			}
 
 		}
 		break;
+
 	}
 	case CS_TELEPORT:{
 		std::uniform_int_distribution<int> uid(0, maploader.validnode.size());
@@ -964,13 +964,13 @@ void process_packet(int c_id, char* packet)
 
 				clients[c_id].Send_Remove_Player_Packet(cl);
 
-				if (is_pc(cl)) {
+			
 					clients[cl].m_view_lock.lock();
 					clients[cl].m_view_list.erase(c_id);
 					clients[cl].m_view_lock.unlock();
 					clients[cl].Send_Remove_Player_Packet(c_id);
 
-				}
+				
 			}
 		}
 
@@ -983,20 +983,48 @@ void process_packet(int c_id, char* packet)
 	}
 }
 
+int API_put_random(lua_State* L) {
+	int user_id = (int)lua_tointeger(L, -1);
+	std::uniform_int_distribution<int> uid(0, maploader.validnode.size());
+	int select = uid(rd);
+	int x = select % 2000;
+	int y = select / 2000;
+	clients[user_id].m_y = y;
+	clients[user_id].m_x = x;
+	return 0;
+}
+
 void InitializeNPC()
 {
 	std::uniform_int_distribution<int> uid(0, maploader.validnode.size());
 	
 	std::cout << "NPC intialize begin.\n";
+
+				auto L = g_L = luaL_newstate();
+					luaL_openlibs(L);
+			luaL_loadfile(L, "npc.lua");
+				lua_pcall(L, 0, 0, 0);
+
+		lua_register(L, "API_put_random", API_put_random);
+
+
+
+
+
 	for (int i = MAX_USER; i < MAX_USER + MAX_NPC; ++i) {
-		int index = uid(rd);
-		int node = maploader.validnode[index];
-		clients[i].m_x = node % W_WIDTH;
-		clients[i].m_y = node/ W_HEIGHT;
+		//int index = uid(rd);
+		//int node = maploader.validnode[index];
+		//clients[i].m_x = node % W_WIDTH;
+		//clients[i].m_y = node/ W_HEIGHT;
+
+	
+		lua_getglobal(L, "API_put_random");
+		lua_pushnumber(L, i);
+		lua_pcall(L, 1, 0, 0);
+
 		int sectornum = GetSectorIndex(clients[i].m_x, clients[i].m_y);
 
 		pSector[sectornum].AddPlayer(i);
-
 		clients[i].m_id = i;
 		//몬스터 이름 정해주기
 		std::uniform_int_distribution<int> uuid(3, 7);
@@ -1011,21 +1039,11 @@ void InitializeNPC()
 		clients[i].m_attack_damge = level *10;
 		clients[i].m_state = ST_INGAME;
 
-		auto L = clients[i]._L = luaL_newstate();
-		luaL_openlibs(L);
-		luaL_loadfile(L, "npc.lua");
-		lua_pcall(L, 0, 0, 0);
 
-		lua_getglobal(L, "set_uid");
-		lua_pushnumber(L, i);
-		lua_pcall(L, 1, 0, 0);
-		// lua_pop(L, 1);// eliminate set_uid from stack after call
 
-		//lua_register(L, "API_SendMessage", API_SendMessage);
-		//lua_register(L, "API_get_x", API_get_x);
-		//lua_register(L, "API_get_y", API_get_y);
 	}
 	std::cout << "NPC initialize end.\n";
+
 }
 
 void WakeUpNPC(int npc_id, int waker)
@@ -1058,12 +1076,40 @@ void do_timer()
 				continue;
 			}
 			switch (ev.event_id) {
-			case EV_RANDOM_MOVE:
+			case EV_RANDOM_MOVE: {
 				OVER_EXP* ov = new OVER_EXP;
 				ov->_comp_type = OP_NPC_MOVE;
 				PostQueuedCompletionStatus(g_h_iocp, 1, ev.obj_id, &ov->_over);
 				break;
 			}
+			case EV_HP_UP: {
+
+
+
+				clients[ev.obj_id].m_hp_lock.lock();
+				clients[ev.obj_id].m_hp += 0.1 * clients[ev.obj_id].m_hp;
+				if (clients[ev.obj_id].m_hp > clients[ev.obj_id].m_max_hp) clients[ev.obj_id].m_hp = clients[ev.obj_id].m_max_hp;
+				clients[ev.obj_id].m_hp_lock.unlock();
+				clients[ev.obj_id].Send_Change_State_Packet(clients[ev.obj_id]);
+				clients[ev.obj_id].m_view_lock.lock();
+				std::unordered_set<int> new_vl = clients[ev.obj_id].m_view_list;
+				clients[ev.obj_id].m_view_lock.unlock();
+
+				for (auto& id : new_vl) {
+					if (is_npc(id)) {
+						clients[ev.obj_id].Send_Change_State_Packet(clients[ev.obj_id]);
+					}
+				}
+
+				if (clients[ev.obj_id].m_state == ST_INGAME) {
+					ev.wakeup_time = std::chrono::system_clock::now() + std::chrono::seconds(5);
+					timer_queue.push(ev);
+				}
+				break;
+			}
+			}
+		
+			
 			continue;		// 즉시 다음 작업 꺼내기
 		}
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));    // timer_queue가 비어 있으니 잠시 기다렸다가 다시 시작
@@ -1077,34 +1123,30 @@ void do_npc_random_move(int npc_id)
 
 	int x = npc.m_x;
 	int y = npc.m_y;
-
+	int dir = npc.m_dir;
 	switch (rand() % 4) {
 	case 0: if (y > 0) y--; break;
 	case 1: if (y < W_HEIGHT - 1) y++; break;
 	case 2: if (x > 0) {
-		clients[npc_id].m_dir = -1;
+		dir = -1;
 		x--; break;
 
 	}
 	case 3: if (x < W_WIDTH - 1) {
-		clients[npc_id].m_dir = 1;
+		dir = 1;
 		x++; break;
 	}
 	}
 
+	//과거 섹터
+	int preindex = GetSectorIndex(npc.m_x, npc.m_y);
 
-	if (maploader.layer[1][y * W_WIDTH + x]) {
 
-	}
-	else {
-		npc.m_x = x;
-		npc.m_y = y;
-	}
 
 	bool isattacked = false;
 	int attackobjID = clients[npc_id].m_ai_target_obj;
 	//캐릭터 공격 범위
-	for (int y = -2; y < 3; y++) {
+	for (int y = -1; y < 2; y++) {
 		for (int x = 0; x < 3; x++) {
 			int cx = clients[npc_id].m_x + clients[npc_id].m_dir * x;
 			int cy = clients[npc_id].m_y + y;
@@ -1116,78 +1158,93 @@ void do_npc_random_move(int npc_id)
 			}
 		}
 	}
-	//과거 섹터
-	int preindex = GetSectorIndex(npc.m_x, npc.m_y);
 
 
-	//현재 섹터
-	int nowindex = GetSectorIndex(npc.m_x, npc.m_y);
+	if (isattacked == false) {
 
-	if (preindex != nowindex) {
-		//과거 섹터에서 빼주기
-		pSector[preindex].PopPlayer(npc_id);
-		//현재 섹터에 적용
-		pSector[nowindex].AddPlayer(npc_id);
+		npc.m_dir = dir;
+		if (maploader.layer[1][y * W_WIDTH + x]) {
 
-	}
-	std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
-	searchSectorID = clipinglist(x, y, searchSectorID);
-	searchSectorID.insert(nowindex);
-	//뷰리스트 업데이트
-	clients[npc_id].m_view_lock.lock();
-	old_vl = clients[npc_id].m_view_list;
-	clients[npc_id].m_view_lock.unlock();
-
-	std::unordered_set<int> new_vl;
-
-	for (const auto& sectorID : searchSectorID) {
-
-		pSector[sectorID].m.lock();
-		std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
-		pSector[sectorID].m.unlock();
-
-		for (const auto& id : sectorPlayerID) {
-			if (clients[id].m_state != ST_INGAME) continue;
-			if (id == npc_id) continue;
-			if (true == can_see(clients[id], clients[npc_id]))
-				new_vl.insert(clients[id].m_id);
-		}
-	}
-
-
-	for (auto pl : new_vl) {
-		if (0 == old_vl.count(pl)) {
-			// 플레이어의 시야에 등장
-			clients[pl].Send_Add_Player_Packet(npc, true);
 		}
 		else {
-			// 플레이어가 계속 보고 있음.
-			clients[pl].Send_Move_Packet(npc);
+
+
+			npc.m_x = x;
+			npc.m_y = y;
 		}
+		//현재 섹터
+		int nowindex = GetSectorIndex(npc.m_x, npc.m_y);
+
+		if (preindex != nowindex) {
+			//과거 섹터에서 빼주기
+			pSector[preindex].PopPlayer(npc_id);
+			//현재 섹터에 적용
+			pSector[nowindex].AddPlayer(npc_id);
+
+		}
+		std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
+		searchSectorID = clipinglist(x, y, searchSectorID);
+		searchSectorID.insert(nowindex);
+		//뷰리스트 업데이트
+		clients[npc_id].m_view_lock.lock();
+		old_vl = clients[npc_id].m_view_list;
+		clients[npc_id].m_view_lock.unlock();
+
+		std::unordered_set<int> new_vl;
+
+		for (const auto& sectorID : searchSectorID) {
+
+			pSector[sectorID].m.lock();
+			std::unordered_set<int> sectorPlayerID = pSector[sectorID].p;
+			pSector[sectorID].m.unlock();
+
+			for (const auto& id : sectorPlayerID) {
+				if (clients[id].m_state != ST_INGAME) continue;
+				if (id == npc_id) continue;
+				if (true == can_see(clients[id], clients[npc_id]) && is_pc(id))
+					new_vl.insert(clients[id].m_id);
+			}
+		}
+
+
+		for (auto pl : new_vl) {
+			if (is_pc(pl)) {
+				if (0 == old_vl.count(pl)) {
+					// 플레이어의 시야에 등장
+					clients[pl].Send_Add_Player_Packet(npc, true);
+				}
+				else {
+					// 플레이어가 계속 보고 있음.
+					clients[pl].Send_Move_Packet(npc);
+				}
+			}
+		}
+
+		for (auto pl : old_vl) {
+			if (is_pc(pl)) {
+				if (0 == new_vl.count(pl)) {
+					clients[pl].m_view_lock.lock();
+					if (0 != clients[pl].m_view_list.count(npc.m_id)) {
+						clients[pl].m_view_lock.unlock();
+						clients[pl].Send_Remove_Player_Packet(npc.m_id);
+					}
+					else {
+						clients[pl].m_view_lock.unlock();
+					}
+				}
+			}
+		}
+
+		clients[npc_id].m_view_lock.lock();
+		clients[npc_id].m_view_list = new_vl;
+		clients[npc_id].m_view_lock.unlock();
 	}
 
-	for (auto pl : old_vl) {
-		if (0 == new_vl.count(pl)) {
-			clients[pl].m_view_lock.lock();
-			if (0 != clients[pl].m_view_list.count(npc.m_id)) {
-				clients[pl].m_view_lock.unlock();
-				clients[pl].Send_Remove_Player_Packet(npc.m_id);
-			}
-			else {
-				clients[pl].m_view_lock.unlock();
-			}
-		}
-	}
-
-	clients[npc_id].m_view_lock.lock();
-	clients[npc_id].m_view_list = new_vl;
-	clients[npc_id].m_view_lock.unlock();
-
-	//공격받은 플레이어 데미지 계산 및 패킷 계산
-	int attackdamage = clients[npc_id].m_level;
+	//////공격받은 플레이어 데미지 계산 및 패킷 계산
+	int attackdamage = clients[npc_id].m_level * 2;
 
 	if (isattacked) {
-		std::cout << attackobjID << "가" << "공격 받았습니다." << std::endl;
+		//std::cout << attackobjID << "가" << "공격 받았습니다." << std::endl;
 		clients[attackobjID].m_hp_lock.lock();
 		clients[attackobjID].m_hp -= attackdamage;
 		clients[attackobjID].m_hp_lock.unlock();
@@ -1200,6 +1257,7 @@ void do_npc_random_move(int npc_id)
 			clients[attackobjID].m_exp_lock.lock();
 			clients[attackobjID].m_exp /= 2;
 			clients[attackobjID].m_exp_lock.unlock();
+
 			clients[attackobjID].Send_Change_State_Packet(clients[attackobjID]);
 			//자리이동
 			std::uniform_int_distribution<int> uid(0, maploader.validnode.size());
@@ -1220,6 +1278,7 @@ void do_npc_random_move(int npc_id)
 				pSector[nowindex].AddPlayer(attackobjID);
 
 			}
+
 			std::unordered_set<int> searchSectorID = adjacentSector(nowindex);
 			searchSectorID = clipinglist(x, y, searchSectorID);
 			searchSectorID.insert(nowindex);
@@ -1301,8 +1360,10 @@ void do_npc_random_move(int npc_id)
 			std::unordered_set<int> updateplayerview = clients[attackobjID].m_view_list;
 			clients[attackobjID].m_view_lock.unlock();
 			for (const int& i : updateplayerview) {
-				clients[i].Send_Change_State_Packet(clients[attackobjID]);
-				clients[i].Send_Attack_Packet(npc_id);
+				if (is_pc(i)) {
+					clients[i].Send_Change_State_Packet(clients[attackobjID]);
+					clients[i].Send_Attack_Packet(npc_id);
+				}
 			}
 
 		}

@@ -38,9 +38,9 @@
 enum S_STATE { ST_FREE, ST_ALLOC, ST_INGAME };
 //IOCP ¿¬»ê
 enum COMP_TYPE { OP_ACCEPT, OP_RECV, OP_SEND, OP_NPC_MOVE, OP_AI_HELLO };
-constexpr int VIEW_RANGE = 5;
-constexpr int SECTOR_SIZE = 5;
-enum EVENT_TYPE { EV_RANDOM_MOVE };
+constexpr int VIEW_RANGE = 15;
+constexpr int SECTOR_SIZE = 15;
+enum EVENT_TYPE { EV_RANDOM_MOVE ,EV_HP_UP };
 
 class SECTOR_NUM {
 public:

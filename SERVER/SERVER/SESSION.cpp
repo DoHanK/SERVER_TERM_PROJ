@@ -132,3 +132,12 @@ void SESSION::Send_Change_State_Packet(const SESSION& Player)
 	Send(&p);
 
 }
+
+void SESSION::Send_Fali_Login_Packet()
+{
+
+	SC_LOGIN_FAIL_PACKET p;
+	p.size = sizeof(SC_LOGIN_FAIL_PACKET);
+	p.type = SC_LOGIN_FAIL;
+	Send(&p);
+}

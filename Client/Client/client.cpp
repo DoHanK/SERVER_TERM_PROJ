@@ -758,6 +758,12 @@ public:
 		m_expImg[2].setTextureRect(sf::IntRect(0, 0, 512, 512));
 		m_expImg[2].setScale(3.0f, 0.5);
 		m_expImg[2].setPosition(-200, w_window_height - 150);
+
+		battlemsg[exp].setPosition(350, w_window_height - 200);
+		battlemsg[hp].setPosition(350, w_window_height - 230);
+		battlemsg[level].setPosition(350, w_window_height - 260);
+		/*battlemsg[hp].setPosition(w_window_width/2-100, w_window_height/2-300);
+		battlemsg[level].setPosition(w_window_width / 2, 100);*/
 	}
 
 	void MovingUI(sf::Vector2i mousecoord) {
@@ -883,9 +889,18 @@ public:
 			m_pwindow->draw(m_telbtnimg[select]);
 		}
 
+		if (battlemsg_end_time[exp] > chrono::system_clock::now()) {
+				m_pwindow->draw(battlemsg[exp]);
+		}
+		if (battlemsg_end_time[level] > chrono::system_clock::now()) {
+			m_pwindow->draw(battlemsg[level]);
+		}
+		if (battlemsg_end_time[hp] > chrono::system_clock::now()) {
+			m_pwindow->draw(battlemsg[hp]);
+		}
 	}
 
-	void Updatebattle(int state, float dxmess) {
+	void Updatebattle(int state, int dxmess) {
 		if (state == exp) {
 			if (dxmess>0) {
 				std::wstring str = L"경험치를 ";
@@ -893,7 +908,7 @@ public:
 				str += L"만큼 얻었습니다.";
 				battlemsg[exp].setFont(g_fhangle);
 				battlemsg[exp].setString(str);
-				battlemsg[exp].setFillColor(sf::Color(0, 0, 0));
+				battlemsg[exp].setFillColor(sf::Color(255, 255, 255));
 				battlemsg[exp].setStyle(sf::Text::Bold);
 				battlemsg_end_time[exp] = chrono::system_clock::now() + chrono::seconds(3);
 			}
@@ -903,7 +918,7 @@ public:
 				str += L"만큼 잃었습니다.";
 				battlemsg[exp].setFont(g_fhangle);
 				battlemsg[exp].setString(str);
-				battlemsg[exp].setFillColor(sf::Color(0, 0, 0));
+				battlemsg[exp].setFillColor(sf::Color(255, 255, 255));
 				battlemsg[exp].setStyle(sf::Text::Bold);
 				battlemsg_end_time[exp] = chrono::system_clock::now() + chrono::seconds(3);
 			}
@@ -915,7 +930,7 @@ public:
 			str += L"만큼 올랐습니다.";
 			battlemsg[level].setFont(g_fhangle);
 			battlemsg[level].setString(str);
-			battlemsg[level].setFillColor(sf::Color(0, 0, 0));
+			battlemsg[level].setFillColor(sf::Color(255, 255, 255));
 			battlemsg[level].setStyle(sf::Text::Bold);
 			battlemsg_end_time[level] = chrono::system_clock::now() + chrono::seconds(3);
 
@@ -927,7 +942,7 @@ public:
 				str += L"를 얻었습니다.";
 				battlemsg[hp].setFont(g_fhangle);
 				battlemsg[hp].setString(str);
-				battlemsg[hp].setFillColor(sf::Color(0, 0, 0));
+				battlemsg[hp].setFillColor(sf::Color(255, 255, 255));
 				battlemsg[hp].setStyle(sf::Text::Bold);
 				battlemsg_end_time[hp] = chrono::system_clock::now() + chrono::seconds(3);
 
@@ -938,7 +953,7 @@ public:
 				str += L"를 잃었습니다.";
 				battlemsg[hp].setFont(g_fhangle);
 				battlemsg[hp].setString(str);
-				battlemsg[hp].setFillColor(sf::Color(0, 0, 0));
+				battlemsg[hp].setFillColor(sf::Color(255, 255, 255));
 				battlemsg[hp].setStyle(sf::Text::Bold);
 				battlemsg_end_time[hp] = chrono::system_clock::now() + chrono::seconds(3);
 			}
@@ -1108,8 +1123,14 @@ void ProcessPacket(char* ptr)
 			float dxhp	= my_packet->hp - avatar.m_hp ;
 			float dxlevel=	my_packet->level - avatar.m_level;
 
+
+			if (dxlevel == 0 && dxexp != 0)
 			UImanger->Updatebattle(UIManager::exp, dxexp);
-			if(dxexp>=0) UImanger->Updatebattle(UIManager::hp, dxhp);
+
+			if (dxlevel == 0 && dxexp >= 0 && dxhp !=0) {
+				UImanger->Updatebattle(UIManager::hp, dxhp);
+			}
+			if(dxlevel!=0)
 			UImanger->Updatebattle(UIManager::level, dxlevel);
 
 
@@ -1135,7 +1156,9 @@ void ProcessPacket(char* ptr)
 		break;
 	}
 	case SC_LOGIN_FAIL: {
-		
+		std::cout << "로그인 실패" << std::endl;
+
+
 		exit(0);
 	}
 	default:

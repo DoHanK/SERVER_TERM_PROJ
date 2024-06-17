@@ -22,8 +22,8 @@ extern HWND		hWnd;
 const static int MAX_TEST = 100000;
 const static int MAX_CLIENTS = MAX_TEST * 2;
 const static int INVALID_ID = -1;
-const static int MAX_PACKET_SIZE = 500;
-const static int MAX_BUFF_SIZE = 500;
+const static int MAX_PACKET_SIZE = 1024;
+const static int MAX_BUFF_SIZE = 1024;
  
 #pragma comment (lib, "ws2_32.lib")
 
@@ -234,7 +234,8 @@ void Worker_Thread()
 		}
 		else if (OP_SEND == over->event_type) {
 			if (io_size != over->wsabuf.len) {
-				// std::cout << "Send Incomplete Error!\n";
+				// std::cout << "Send I
+				// ncomplete Error!\n";
 				DisconnectClient(client_id);
 			}
 			delete over;

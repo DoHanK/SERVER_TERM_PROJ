@@ -9,7 +9,8 @@ function event_player_move(player)
    player_y = API_get_y(player);
    my_x = API_get_x(myid);
    my_y = API_get_y(myid);
-
 end
 
-
+function event_random_pos(id)
+	API_put_random(id);
+end

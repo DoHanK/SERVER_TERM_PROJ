@@ -71,6 +71,8 @@ public:
 	void Send_Attack_Packet(int  id);
 
 	void Send_Change_State_Packet(const SESSION& Player);
+
+	void Send_Fali_Login_Packet();
 };
 
 
