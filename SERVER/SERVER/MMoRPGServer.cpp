@@ -176,7 +176,45 @@ void ConnectDataBase() {
 									}
 									else if (retcode == SQL_NO_DATA && i == 0) {
 										//데이터가 없으면??
-										
+
+										clients[GetOpNId.first].m_userid = GetOpNId.second.second;
+										clients[GetOpNId.first].m_visual = rand()%3;
+										clients[GetOpNId.first].m_max_hp = 1000;
+										clients[GetOpNId.first].m_hp = 1000;
+										clients[GetOpNId.first].m_exp = 0;
+										clients[GetOpNId.first].m_attack_damge = 10;
+										clients[GetOpNId.first].m_level = 10;
+										clients[GetOpNId.first].m_x = rand() % W_WIDTH;
+										clients[GetOpNId.first].m_y = rand() % W_HEIGHT;
+
+										int sectornum = GetSectorIndex(clients[GetOpNId.first].m_x, clients[GetOpNId.first].m_y);
+
+										pSector[sectornum].AddPlayer(GetOpNId.first);
+
+										clients[GetOpNId.first].Send_Login_Info_Packet();
+										{
+											std::lock_guard<std::mutex> ll{ clients[GetOpNId.first].m_socket_lock };
+											clients[GetOpNId.first].m_state = ST_INGAME;
+										}
+
+										for (auto& pl : clients) {
+											{
+												std::lock_guard<std::mutex> ll(pl.m_socket_lock);
+												if (ST_INGAME != pl.m_state) continue;
+											}
+											if (pl.m_id == GetOpNId.first) continue;
+											if (false == can_see(clients[GetOpNId.first], clients[pl.m_id]))
+												continue;
+											if (is_pc(pl.m_id)) pl.Send_Add_Player_Packet(clients[GetOpNId.first], false);
+											else WakeUpNPC(pl.m_id, GetOpNId.first);
+											clients[GetOpNId.first].Send_Add_Player_Packet(clients[pl.m_id], false);
+										}
+
+											GetOpNId.second.first = OP_CRAETE_ID;
+											QueryLock.lock();
+											QueryQueue.push(GetOpNId);
+											QueryLock.unlock();
+
 
 										break;
 									}
@@ -201,7 +239,6 @@ void ConnectDataBase() {
 							std::string tempid = GetOpNId.second.second;
 							std::wstring id;
 							id.assign(tempid.begin(), tempid.end());
-
 							cmd += id;
 							cmd += L",";
 							cmd += std::to_wstring(clients[GetOpNId.first].m_visual);
@@ -226,11 +263,33 @@ void ConnectDataBase() {
 
 						else if (GetOpNId.second.first == OP_CRAETE_ID) {
 
+							std::wstring cmd = L"EXEC CreateID ";
+							std::string tempid = GetOpNId.second.second;
+							std::wstring id;
+							id.assign(tempid.begin(), tempid.end());
+							std::cout << "아이디 신규 저장 비쥬얼" << clients[GetOpNId.first].m_visual << std::endl;
 
-
-
+							cmd += id;
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_visual);
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_max_hp);
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_hp);
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_exp);
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_attack_damge);
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_level);
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_x);
+							cmd += L",";
+							cmd += std::to_wstring(clients[GetOpNId.first].m_y);
+							retcode = SQLExecDirect(hstmt, (SQLWCHAR*)cmd.c_str(), SQL_NTS);
 
 							delete  GetOpNId.second.second;
+
 						}
 
 						//if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
@@ -873,7 +932,7 @@ void process_packet(int c_id, char* packet)
 				player.m_hp_lock.unlock();
 
 				//적이 죽지 않고 공격 받았을때 적 근처 플레이어에게 알려주기
-			
+					clients[c_id].Send_Change_State_Packet(clients[npcid]);
 					for (const auto& seeid : new_vl) {
 						if (clients[seeid].m_state != ST_INGAME) continue;
 						if (seeid == npcid) continue;
@@ -1241,7 +1300,8 @@ void do_npc_random_move(int npc_id)
 	}
 
 	//////공격받은 플레이어 데미지 계산 및 패킷 계산
-	int attackdamage = clients[npc_id].m_level * 2;
+	int attackdamage = clients[npc_id].m_level * 10;
+	//int attackdamage = 0;
 
 	if (isattacked) {
 		//std::cout << attackobjID << "가" << "공격 받았습니다." << std::endl;
