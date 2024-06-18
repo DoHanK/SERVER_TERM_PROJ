@@ -3,11 +3,16 @@
 #include "SESSION.h"
 #include "CELL.h"
 #include "MapInfoLoad.h"
-
+#include <list>	
 
 MapInfoLoad maploader;
 std::random_device rd;
 lua_State* g_L;
+std::mutex filelock;
+std::list<std::wstring> chatrecord;
+std::chrono::system_clock::time_point filesavetime;
+
+
 void process_packet(int c_id, char* packet);
 bool can_see(const SESSION& a, const SESSION& b);
 int get_new_client_id(std::array<SESSION, MAX_USER>& clients);
@@ -20,6 +25,8 @@ bool is_pc(int object_id)
 {
 	return object_id < MAX_USER;
 }
+
+void saveToFile(const std::list<std::wstring>& strList, const std::wstring& filename);
 
 bool is_npc(int object_id)
 {
@@ -170,7 +177,7 @@ void ConnectDataBase() {
 											clients[GetOpNId.first].Send_Add_Player_Packet(clients[pl.m_id], false);
 										}
 
-										delete  GetOpNId.second.second;
+										delete[]  GetOpNId.second.second;
 										break;
 
 									}
@@ -258,7 +265,7 @@ void ConnectDataBase() {
 							cmd += std::to_wstring(clients[GetOpNId.first].m_y);
 							retcode = SQLExecDirect(hstmt, (SQLWCHAR*)cmd.c_str(), SQL_NTS);
 
-							delete  GetOpNId.second.second;
+							delete[]  GetOpNId.second.second;
 						}
 
 						else if (GetOpNId.second.first == OP_CRAETE_ID) {
@@ -288,7 +295,7 @@ void ConnectDataBase() {
 							cmd += std::to_wstring(clients[GetOpNId.first].m_y);
 							retcode = SQLExecDirect(hstmt, (SQLWCHAR*)cmd.c_str(), SQL_NTS);
 
-							delete  GetOpNId.second.second;
+							delete[]  GetOpNId.second.second;
 
 						}
 
@@ -623,9 +630,9 @@ void process_packet(int c_id, char* packet)
 			//AI임
 			
 			clients[c_id].m_userid = testai;
-			std::uniform_int_distribution<int> uuid(0, 3);
-			int monkindnum = uuid(rd);
-			clients[c_id].m_visual = monkindnum;
+	/*		std::uniform_int_distribution<int> uuid(0, 3);
+			int monkindnum = uuid(rd);*/
+			clients[c_id].m_visual = rand()%3;
 			clients[c_id].m_max_hp = INT_MAX;
 			clients[c_id].m_hp = INT_MAX;
 			clients[c_id].m_exp = 0;
@@ -658,19 +665,20 @@ void process_packet(int c_id, char* packet)
 			}
 	
 
-			delete name;
+			delete[] name;
 		}
 		else {
 			QueryLock.lock();
 			QueryQueue.push({ c_id, { OP_GETINFO ,name } });
 			QueryLock.unlock();
 
+			TIMER_EVENT ev;
+			ev.event_id = EV_HP_UP;
+			ev.obj_id = c_id;
+			ev.wakeup_time = std::chrono::system_clock::now() + std::chrono::seconds(5);
+			timer_queue.push(ev);
 		}
-		TIMER_EVENT ev;
-		ev.event_id = EV_HP_UP;
-		ev.obj_id = c_id;
-		ev.wakeup_time = std::chrono::system_clock::now() + std::chrono::seconds(5);
-		timer_queue.push(ev);
+
 
 		break;
 		
@@ -789,9 +797,21 @@ void process_packet(int c_id, char* packet)
 	case CS_CHAT: {
 		CS_CHAT_PACKET* p = reinterpret_cast<CS_CHAT_PACKET*>(packet);
 		
-		std::wstring w(p->mess);
-	;
-		std::wcout << w << std::endl;
+		std::wstring w;
+		w.assign(clients[c_id].m_userid.begin(), clients[c_id].m_userid.end());
+		w += L": ";
+		w +=p->mess;
+		w += L"\n";
+		std::wcout << w;
+		chatrecord.push_back(w);
+		auto nowtime = std::chrono::system_clock::now();
+		filelock.lock();
+		if (filesavetime < nowtime) {
+			std::cout << "대화 저장중" << std::endl;
+			saveToFile(chatrecord, L"대화내용기록.txt");
+			filesavetime = nowtime + std::chrono::seconds(10);
+		}
+		filelock.unlock();
 
 		clients[c_id].m_view_lock.lock();
 		std::unordered_set<int> vl = clients[c_id].m_view_list;
@@ -1143,8 +1163,6 @@ void do_timer()
 			}
 			case EV_HP_UP: {
 
-
-
 				clients[ev.obj_id].m_hp_lock.lock();
 				clients[ev.obj_id].m_hp += 0.1 * clients[ev.obj_id].m_hp;
 				if (clients[ev.obj_id].m_hp > clients[ev.obj_id].m_max_hp) clients[ev.obj_id].m_hp = clients[ev.obj_id].m_max_hp;
@@ -1431,6 +1449,36 @@ void do_npc_random_move(int npc_id)
 }
 
 
+// UTF-8로 변환하는 함수
+std::string wstring_to_utf8(const std::wstring& wstr) {
+	if (wstr.empty()) return std::string();
+	int size_needed = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), nullptr, 0, nullptr, nullptr);
+	std::string strTo(size_needed, 0);
+	WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0], size_needed, nullptr, nullptr);
+	return strTo;
+}
+
+// 파일에 문자열을 저장하는 함수
+void saveToFile(const std::list<std::wstring>& strList, const std::wstring& filename) {
+	// 파일을 텍스트 모드로 열기
+	std::ofstream outFile(filename);
+	if (!outFile.is_open()) {
+		std::wcerr << L"파일을 열 수 없습니다: " << filename << std::endl;
+		return;
+	}
+
+	// 문자열을 파일에 쓰기
+	for (const auto& wstr : strList) {
+		std::string utf8Str = wstring_to_utf8(wstr);
+		outFile << utf8Str << '\n'; // 줄바꿈 추가
+	}
+
+	outFile.close();
+	if (outFile.fail()) {
+		std::wcerr << L"파일을 닫는 중 오류가 발생했습니다." << std::endl;
+	}
+}
+
 int main() {
 
 	//SECTOR Init
@@ -1498,9 +1546,33 @@ int main() {
 	std::thread timer_thread{ do_timer };
 
 	DataBase_thread.join();
+
 	timer_thread.join();
 	for (auto& th : worker_threads)
 		th.join();
+
+
+	//for (auto s : chatrecord) {
+	//	std::wcout << s << std::endl;
+	//}
+	//std::wofstream outFile(L"대화내용기록.txt");
+	//if (!outFile.is_open()) {
+	//	std::wcerr << L"파일을 열 수 없습니다: " << L"대화내용기록.txt" << std::endl;
+	//	return 0;
+	//}
+
+
+	//// UTF-16 BOM (Byte Order Mark) 추가
+	//const wchar_t bom = 0xFEFF;
+	//outFile.write(&bom, 1);
+
+	//// 문자열을 파일에 쓰기
+	//for (const auto& str : chatrecord) {
+	//	outFile << str;
+	//}
+
+	//outFile.close();
+
 
 	closesocket(g_s_socket);
 	WSACleanup();
