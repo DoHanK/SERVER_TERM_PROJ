@@ -472,6 +472,7 @@ void disconnect(int c_id, std::array<SESSION, MAX_USER+ MAX_NPC>& clients) {
 	}
 	char* name = new char[NAME_SIZE];
 	memcpy(name, clients[c_id].m_userid.c_str(), NAME_SIZE);
+	clients[c_id].m_userid = "";
 	QueryLock.lock();
 	QueryQueue.push({ c_id, { OP_SAVEINFO, name } });
 	QueryLock.unlock();
