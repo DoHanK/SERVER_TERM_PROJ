@@ -13,9 +13,7 @@
 ### 게임플레이화면
 <table>
   <tr>
-    <td colspan="2" align="center">
-    <td><img src="https://github.com/user-attachments/assets/5d8f1c1e-c1e2-46f2-8825-e961c6f3bf8a" width="700"/></td>
-    </td>
+    <td colspan="2" align="center"><img src="https://github.com/user-attachments/assets/5d8f1c1e-c1e2-46f2-8825-e961c6f3bf8a" width="700"/></td>
   </tr>
   <tr>
     <td><img src="https://github.com/user-attachments/assets/0d1c51f2-36e5-4bfe-b15b-91e5af674ae5" width="350"/></td>
