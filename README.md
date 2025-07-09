@@ -13,7 +13,7 @@
 ### 게임플레이화면
 <table>
   <tr>
-    <td colspan="2">
+    <td colspan="2" align="center">
     <td><img src="https://github.com/user-attachments/assets/5d8f1c1e-c1e2-46f2-8825-e961c6f3bf8a" width="700"/></td>
     </td>
   </tr>
